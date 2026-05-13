@@ -1,0 +1,17 @@
+{
+  "K": 256,
+  "M": 256,
+  "N": 256,
+  "bad_baseline": false,
+  "correctness_passed": true,
+  "device": "cpu:0",
+  "kernel_name": "matmul_tir",
+  "latency_ms_mean": 19.593392599999998,
+  "latency_ms_std": 0.02421956247829395,
+  "max_abs_error": 4.57763671875e-05,
+  "mean_abs_error": 2.253069169455557e-06,
+  "num_trials": 10,
+  "num_warmup": 3,
+  "target": "llvm",
+  "timestamp": "2026-05-09T02:29:46.408131+00:00"
+}

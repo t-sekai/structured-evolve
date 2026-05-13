@@ -1,0 +1,17 @@
+{
+  "K": 256,
+  "M": 256,
+  "N": 256,
+  "bad_baseline": false,
+  "correctness_passed": true,
+  "device": "cuda:0",
+  "kernel_name": "matmul_tir",
+  "latency_ms_mean": 0.025484399999999997,
+  "latency_ms_std": 0.0009652922044645338,
+  "max_abs_error": 4.1961669921875e-05,
+  "mean_abs_error": 9.089416721508314e-07,
+  "num_trials": 10,
+  "num_warmup": 3,
+  "target": "cuda",
+  "timestamp": "2026-05-09T02:29:49.734580+00:00"
+}

@@ -1,0 +1,4 @@
+numpy>=1.23
+
+# TVM is expected to come from your local build environment.
+# Verify it with: python -c "import tvm; print(tvm.__version__)"

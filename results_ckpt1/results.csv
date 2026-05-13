@@ -1,0 +1,3 @@
+kernel_name,M,N,K,target,device,correctness_passed,max_abs_error,mean_abs_error,latency_ms_mean,latency_ms_std,num_warmup,num_trials,timestamp,bad_baseline
+matmul_tir,256,256,256,llvm,cpu:0,True,4.57763671875e-05,2.253069169455557e-06,19.593392599999998,0.02421956247829395,3,10,2026-05-09T02:29:46.408131+00:00,False
+matmul_tir,256,256,256,cuda,cuda:0,True,4.1961669921875e-05,9.089416721508314e-07,0.025484399999999997,0.0009652922044645338,3,10,2026-05-09T02:29:49.734580+00:00,False
