@@ -27,17 +27,27 @@ pip install -r requirements.txt
 
 ## Example Commands
 
-Run the CPU baseline:
+Run the fixed CPU baseline from checkpoint 1:
 
 ```bash
 python scripts/run_baseline.py --target llvm
 ```
 
-Run the CUDA baseline:
+Run the fixed CUDA baseline from checkpoint 1:
 
 ```bash
 python scripts/run_baseline.py --target cuda
 ```
+
+Run a small TVM MetaSchedule CPU baseline:
+
+```bash
+python scripts/run_baseline.py --strategy metaschedule --target llvm --M 128 --N 128 --K 128 --max-trials-global 16 --num-trials-per-iter 4 --cost-model random --num-tuning-cores 1
+```
+
+For real comparisons, use the default `--cost-model xgb`, increase
+`--max-trials-global`, and keep the same shape, target, warmup, and timing
+settings across strategies.
 
 Demonstrate a correctness failure:
 

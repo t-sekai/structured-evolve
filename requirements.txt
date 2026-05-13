@@ -1,4 +1,6 @@
 numpy>=1.23
+pandas
+xgboost
 
 # TVM is expected to come from your local build environment.
 # Verify it with: python -c "import tvm; print(tvm.__version__)"
