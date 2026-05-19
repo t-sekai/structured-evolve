@@ -1,3 +1,55 @@
-results/
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-**/__pycache__/
+# Local environments
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Secrets and local machine config
+config/api_keys.toml
+*.pem
+*.key
+
+# TVM source/build artifacts
+third_party/
+tvm/
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+*.so
+*.dylib
+*.dll
+*.o
+
+# Experiment outputs
+results/
+results*/
+*.log
+
+# Generated run artifacts. Keep seed candidates, ignore evolution outputs.
+generated/evolution/
+generated/**/work_dirs/
+generated/**/logs/
+generated/**/database_workload.json
+generated/**/database_tuning_record.json
+generated/**/scheduled_module.txt
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

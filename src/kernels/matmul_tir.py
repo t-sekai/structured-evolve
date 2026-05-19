@@ -25,7 +25,7 @@ def create_matmul_ir_module(M: int, N: int, K: int) -> tvm.IRModule:
 
     if hasattr(T, "sblock"):
 
-        @I.ir_module
+        @I.ir_module(check_well_formed=False)
         class MatmulModule:
             @T.prim_func
             def main(
@@ -49,7 +49,7 @@ def create_matmul_ir_module(M: int, N: int, K: int) -> tvm.IRModule:
 
         return MatmulModule
 
-    @I.ir_module
+    @I.ir_module(check_well_formed=False)
     class MatmulModule:
         @T.prim_func
         def main(

@@ -1,0 +1,14 @@
+# Copy this file to config/api_keys.toml and fill in local credentials.
+# config/api_keys.toml is ignored by git.
+
+[aws]
+access_key_id = ""
+secret_access_key = ""
+session_token = ""
+bedrock_bearer_token = "YOUR_AWS_BEARER_TOKEN_BEDROCK"
+region = "us-west-2"
+
+[bedrock]
+model_id = "openai.gpt-oss-120b-1:0"
+temperature = 0.7
+max_tokens = 4096

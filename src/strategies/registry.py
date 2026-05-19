@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from src.strategies.fixed import FixedScheduleStrategy
+from src.strategies.generated_schedule import GeneratedScheduleStrategy
+from src.strategies.generated_search_space import GeneratedSearchSpaceStrategy
 from src.strategies.metaschedule import MetaScheduleStrategy
 
 
 _STRATEGIES = {
     FixedScheduleStrategy.name: FixedScheduleStrategy,
+    GeneratedScheduleStrategy.name: GeneratedScheduleStrategy,
+    GeneratedSearchSpaceStrategy.name: GeneratedSearchSpaceStrategy,
     MetaScheduleStrategy.name: MetaScheduleStrategy,
 }
 

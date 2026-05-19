@@ -26,6 +26,8 @@ class StrategyBuildConfig:
     cost_model: str = "xgb"
     task_scheduler: str = "gradient"
     post_optimization: bool = False
+    generated_schedule_path: Path | None = None
+    generated_search_space_path: Path | None = None
 
 
 @dataclass(frozen=True)

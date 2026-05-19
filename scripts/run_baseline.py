@@ -59,6 +59,24 @@ def parse_args() -> argparse.Namespace:
         help="Optional MetaSchedule work directory. Defaults under OUTPUT_DIR/work_dirs.",
     )
     parser.add_argument(
+        "--generated-schedule-path",
+        type=Path,
+        default=None,
+        help=(
+            "Python file for --strategy generated-schedule. It must define "
+            "apply_schedule(ir_module, target_name) -> tvm.IRModule."
+        ),
+    )
+    parser.add_argument(
+        "--generated-search-space-path",
+        type=Path,
+        default=None,
+        help=(
+            "Python file for --strategy generated-search-space. It must define "
+            "generate_design_space(sch) or create_space_generator(target_name)."
+        ),
+    )
+    parser.add_argument(
         "--max-trials-global",
         type=int,
         default=64,
@@ -149,6 +167,8 @@ def main() -> int:
             cost_model=args.cost_model,
             task_scheduler=args.task_scheduler,
             post_optimization=args.post_optimization,
+            generated_schedule_path=args.generated_schedule_path,
+            generated_search_space_path=args.generated_search_space_path,
         )
         result = run_matmul_experiment(
             strategy=strategy,
