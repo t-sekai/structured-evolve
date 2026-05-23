@@ -12,7 +12,6 @@ import tvm
 
 from src.kernels.matmul_tir import create_matmul_ir_module
 from src.strategies.base import MatmulStrategy, StrategyBuildConfig
-from src.strategies.fixed import FixedScheduleStrategy
 
 
 @dataclass(frozen=True)
@@ -46,13 +45,10 @@ def build_and_run_matmul(
     N: int,
     K: int,
     target_name: str,
-    strategy: MatmulStrategy | None = None,
-    strategy_config: StrategyBuildConfig | None = None,
+    strategy: MatmulStrategy,
+    strategy_config: StrategyBuildConfig,
 ) -> RunState:
     """Build the TensorIR matmul for a target, run once, and return runtime state."""
-    strategy = strategy or FixedScheduleStrategy()
-    strategy_config = strategy_config or StrategyBuildConfig()
-
     device = _get_device(target_name)
     target = _make_target(target_name)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping
 
 import numpy as np
 
@@ -28,6 +28,8 @@ def run_matmul_experiment(
     num_trials: int,
     output_dir: Path,
     bad_baseline: bool = False,
+    extra_metadata: Mapping[str, Any] | None = None,
+    postprocess_result: Callable[[dict[str, Any]], Mapping[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     """Run one strategy through the common compile, correctness, timing, and save path."""
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -85,6 +87,7 @@ def run_matmul_experiment(
             num_warmup=num_warmup,
             num_trials=num_trials,
             bad_baseline=bad_baseline,
+            extra_metadata=extra_metadata,
         )
         result.update(
             {
@@ -112,6 +115,7 @@ def run_matmul_experiment(
             num_warmup=num_warmup,
             num_trials=num_trials,
             bad_baseline=bad_baseline,
+            extra_metadata=extra_metadata,
         )
         result.update(
             {
@@ -125,6 +129,11 @@ def run_matmul_experiment(
                 "error_message": _truncate(str(err)),
             }
         )
+
+    if postprocess_result is not None:
+        postprocessed = postprocess_result(result)
+        if postprocessed:
+            result.update(_jsonable_metadata(postprocessed))
 
     json_path = save_json_result(result, output_dir)
     csv_path = append_csv_result(result, output_dir)
@@ -145,14 +154,19 @@ def _base_result(
     num_warmup: int,
     num_trials: int,
     bad_baseline: bool,
+    extra_metadata: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    return {
+    result = {
+        "task_name": "matmul",
         "kernel_name": KERNEL_NAME,
+        "workload_name": KERNEL_NAME,
         "strategy": strategy.name,
         "level": strategy.level,
         "M": M,
         "N": N,
         "K": K,
+        "shape": f"M{M}_N{N}_K{K}",
+        "problem_size": M * N * K,
         "target": target_name,
         "device": device,
         "num_warmup": num_warmup,
@@ -160,6 +174,9 @@ def _base_result(
         "timestamp": timestamp,
         "bad_baseline": bad_baseline,
     }
+    if extra_metadata:
+        result.update(_jsonable_metadata(extra_metadata))
+    return result
 
 
 def _with_default_work_dir(
@@ -190,3 +207,20 @@ def _truncate(value: str, max_len: int = 1000) -> str:
     if len(value) <= max_len:
         return value
     return value[: max_len - 3] + "..."
+
+
+def _jsonable_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize common path-like metadata before result persistence."""
+    return {key: _jsonable_value(value) for key, value in metadata.items()}
+
+
+def _jsonable_value(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, list):
+        return [_jsonable_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_jsonable_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _jsonable_value(item) for key, item in value.items()}
+    return value

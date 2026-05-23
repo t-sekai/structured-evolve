@@ -20,6 +20,7 @@ def run_schedule_evolution(
     *,
     seed_candidate_path: Path,
     run_dir: Path,
+    output_dir: Path,
     generations: int,
     population_size: int,
     survivors: int,
@@ -31,6 +32,10 @@ def run_schedule_evolution(
     num_trials: int,
     bedrock_client: BedrockClient | None,
     dry_run: bool,
+    experiment_id: str | None = None,
+    suite_name: str | None = None,
+    benchmark_group: str | None = None,
+    experiment_method: str | None = None,
 ) -> list[dict[str, Any]]:
     """Run a small OpenEvolve-style loop over schedule candidate files."""
     if generations < 0:
@@ -47,7 +52,35 @@ def run_schedule_evolution(
         raise ValueError("Provide a BedrockClient or set dry_run=True")
 
     run_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     strategy = get_strategy("generated-schedule")
+    run_id = run_dir.name
+
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "experiment_id": experiment_id,
+            "suite_name": suite_name,
+            "run_id": run_id,
+            "run_kind": "evolution",
+            "experiment_method": experiment_method,
+            "evolution_kind": strategy.level,
+            "strategy": strategy.name,
+            "seed_candidate_path": str(seed_candidate_path),
+            "run_dir": str(run_dir),
+            "output_dir": str(output_dir),
+            "generations": generations,
+            "population_size": population_size,
+            "survivors": survivors,
+            "target": target_name,
+            "M": M,
+            "N": N,
+            "K": K,
+            "num_warmup": num_warmup,
+            "num_trials": num_trials,
+            "dry_run": dry_run,
+        },
+    )
 
     seed_dir = run_dir / "gen_000"
     seed_dir.mkdir(parents=True, exist_ok=True)
@@ -69,7 +102,13 @@ def run_schedule_evolution(
                 K=K,
                 num_warmup=num_warmup,
                 num_trials=num_trials,
-                output_dir=generation_dir / "results",
+                output_dir=output_dir,
+                run_id=run_id,
+                run_dir=run_dir,
+                experiment_id=experiment_id,
+                suite_name=suite_name,
+                benchmark_group=benchmark_group,
+                experiment_method=experiment_method,
             )
             for candidate in active
         ]
@@ -111,6 +150,12 @@ def _evaluate_candidate(
     num_warmup: int,
     num_trials: int,
     output_dir: Path,
+    run_id: str,
+    run_dir: Path,
+    experiment_id: str | None,
+    suite_name: str | None,
+    benchmark_group: str | None,
+    experiment_method: str | None,
 ) -> dict[str, Any]:
     result = run_matmul_experiment(
         strategy=strategy,
@@ -122,8 +167,22 @@ def _evaluate_candidate(
         num_warmup=num_warmup,
         num_trials=num_trials,
         output_dir=output_dir,
+        extra_metadata=_candidate_metadata(
+            candidate=candidate,
+            strategy=strategy,
+            run_id=run_id,
+            run_dir=run_dir,
+            experiment_id=experiment_id,
+            suite_name=suite_name,
+            benchmark_group=benchmark_group,
+            experiment_method=experiment_method,
+        ),
+        postprocess_result=_fitness_metadata,
     )
-    fitness = score_result(result)
+    fitness = FitnessResult(
+        score=float(result["fitness_score"]),
+        reason=str(result["fitness_reason"]),
+    )
     return {
         "candidate": _candidate_dict(candidate),
         "fitness": asdict(fitness),
@@ -208,6 +267,44 @@ def _candidate_dict(candidate: Candidate) -> dict[str, Any]:
         "parent_id": candidate.parent_id,
         "prompt_path": str(candidate.prompt_path) if candidate.prompt_path else None,
         "response_path": str(candidate.response_path) if candidate.response_path else None,
+    }
+
+
+def _candidate_metadata(
+    *,
+    candidate: Candidate,
+    strategy,
+    run_id: str,
+    run_dir: Path,
+    experiment_id: str | None,
+    suite_name: str | None,
+    benchmark_group: str | None,
+    experiment_method: str | None,
+) -> dict[str, Any]:
+    return {
+        "experiment_id": experiment_id,
+        "suite_name": suite_name,
+        "run_id": run_id,
+        "run_kind": "evolution",
+        "benchmark_group": benchmark_group,
+        "experiment_method": experiment_method,
+        "generation": candidate.generation,
+        "candidate_id": candidate.candidate_id,
+        "parent_id": candidate.parent_id,
+        "selection_role": "candidate",
+        "candidate_path": candidate.path,
+        "prompt_path": candidate.prompt_path,
+        "response_path": candidate.response_path,
+        "evolution_run_dir": run_dir,
+        "evolution_kind": strategy.level,
+    }
+
+
+def _fitness_metadata(result: dict[str, Any]) -> dict[str, Any]:
+    fitness = score_result(result)
+    return {
+        "fitness_score": fitness.score,
+        "fitness_reason": fitness.reason,
     }
 
 
