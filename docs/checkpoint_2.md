@@ -83,7 +83,7 @@ using these numbers for final claims.
 ### Figures
 
 Generated analysis artifacts are under
-`results/analysis/ckpt2_cpu_search_vs_baseline/`.
+`results_ckpt2/analysis/ckpt2_cpu_search_vs_baseline/`.
 
 ### Preliminary Interpretation
 

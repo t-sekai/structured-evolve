@@ -1,0 +1,17 @@
+# from tvm.script import ir as I
+# from tvm.script import tirx as T
+
+@I.ir_module
+class Module:
+    @T.prim_func
+    def main(A: T.Buffer((64, 64), "float32"), B: T.Buffer((64, 64), "float32"), C: T.Buffer((64, 64), "float32")):
+        T.func_attr({"tir.noalias": True, "tirx.noalias": True})
+        # with T.sblock("root"):
+        for i, j, k in T.grid(64, 64, 64):
+            with T.sblock("C"):
+                vi, vj, vk = T.axis.remap("SSR", [i, j, k])
+                T.reads(A[vi, vk], B[vk, vj])
+                T.writes(C[vi, vj])
+                with T.init():
+                    C[vi, vj] = T.float32(0.0)
+                C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vk, vj]

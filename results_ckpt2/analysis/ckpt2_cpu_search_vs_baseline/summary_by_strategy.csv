@@ -1,0 +1,5 @@
+target,shape,experiment_method,strategy,level,runs,compile_rate,correctness_rate,latency_ms_mean,latency_ms_median,latency_ms_best,latency_ms_std,tuning_time_sec_mean
+llvm,M64_N64_K64,fixed,fixed,baseline_fixed,2,1.0,1.0,0.1192563,0.1192563,0.1192128,6.151828996323229e-05,0.0
+llvm,M64_N64_K64,level1-search,generated-schedule,level_1_direct_schedule,20,0.6,0.6,1.036486075,0.13852533333333328,0.1193767,1.636552674184947,0.0
+llvm,M64_N64_K64,level2-search,generated-search-space,level_2_evolved_search_space,12,1.0,1.0,0.10218221388888886,0.10074649999999996,0.0548043333333333,0.03832442691307526,8.345794108812697
+llvm,M64_N64_K64,metaschedule,metaschedule,baseline_metaschedule,2,1.0,1.0,0.05783935,0.05783935,0.0368415,0.02969544425067589,20.772641251096502

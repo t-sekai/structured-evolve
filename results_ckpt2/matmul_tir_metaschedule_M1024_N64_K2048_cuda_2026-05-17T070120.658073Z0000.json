@@ -1,0 +1,22 @@
+{
+  "K": 2048,
+  "M": 1024,
+  "N": 64,
+  "bad_baseline": false,
+  "compile_passed": false,
+  "correctness_passed": false,
+  "device": "",
+  "error_message": "No module named 'torch'",
+  "error_type": "ModuleNotFoundError",
+  "kernel_name": "matmul_tir",
+  "latency_ms_mean": null,
+  "latency_ms_std": null,
+  "level": "baseline_metaschedule",
+  "max_abs_error": null,
+  "mean_abs_error": null,
+  "num_trials": 10,
+  "num_warmup": 3,
+  "strategy": "metaschedule",
+  "target": "cuda",
+  "timestamp": "2026-05-17T07:01:20.658073+00:00"
+}

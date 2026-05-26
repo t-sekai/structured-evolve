@@ -1,0 +1,29 @@
+# from tvm.script import ir as I
+# from tvm.script import tirx as T
+
+@I.ir_module
+class Module:
+    @T.prim_func
+    def main(A: T.Buffer((128, 128), "float32"), B: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")):
+        T.func_attr({"tir.noalias": True, "tirx.noalias": True})
+        # with T.sblock("root"):
+        for i_0_j_0_i_1_j_1_fused in T.parallel(512, annotations={"pragma_auto_unroll_max_step": 16, "pragma_unroll_explicit": 1}):
+            for i_2_init, j_2_init, i_3_init in T.grid(1, 2, 2):
+                for j_3_fused_init in T.vectorized(8):
+                    with T.sblock("C_init"):
+                        vi = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused // 8 * 2 + i_2_init * 2 + i_3_init)
+                        vj = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused % 8 * 16 + j_2_init * 8 + j_3_fused_init)
+                        T.reads()
+                        T.writes(C[vi, vj])
+                        T.sblock_attr({"meta_schedule.tiling_structure": "SSRSRS"})
+                        C[vi, vj] = T.float32(0.0)
+            for k_0, i_2, j_2, k_1, i_3 in T.grid(2, 1, 2, 64, 2):
+                for j_3_fused in T.vectorized(8):
+                    with T.sblock("C_update"):
+                        vi = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused // 8 * 2 + i_2 * 2 + i_3)
+                        vj = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused % 8 * 16 + j_2 * 8 + j_3_fused)
+                        vk = T.axis.reduce(128, k_0 * 64 + k_1)
+                        T.reads(C[vi, vj], A[vi, vk], B[vk, vj])
+                        T.writes(C[vi, vj])
+                        T.sblock_attr({"meta_schedule.tiling_structure": "SSRSRS"})
+                        C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vk, vj]

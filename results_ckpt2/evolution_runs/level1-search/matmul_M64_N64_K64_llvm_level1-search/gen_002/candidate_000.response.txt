@@ -1,0 +1,51 @@
+<reasoning>We need produce a Python file with apply_schedule that mutates schedule. Must use tvm.s_tir.Schedule. Ensure correctness. Provide simple schedule: maybe tile and parallelize. For llvm target use parallel. For cuda bind blocks and threads. Ensure we keep correctness. Use get_block, get_loops, split, reorder, bind, parallel, vectorize. Keep imports. Provide function only. Return sch.mod.
+
+Let's craft code.
+
+Need to import tvm. Use tvm.s_tir. Provide apply_schedule.
+
+Implementation:
+
+def apply_schedule(ir_module, target_name):
+    sch = tvm.s_tir.Schedule(ir_module)
+    blk = sch.get_block("C")
+    i,j,k = sch.get_loops(blk)
+    # tile i,j
+    io, ii = sch.split(i, factor=16)
+    jo, ji = sch.split(j, factor=16)
+    # reorder to have outer tiles then inner loops then k
+    sch.reorder(io, jo, ii, ji, k)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.parallel(io)
+        sch.vectorize(ii)
+        sch.unroll(k)
+    return sch.mod
+
+Make sure .parallel exists on schedule. Yes tvm.s_tir.Schedule has parallel. Provide final file.
+
+</reasoning>from __future__ import annotations
+
+import tvm
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch = tvm.s_tir.Schedule(ir_module)
+    blk = sch.get_block("C")
+    i, j, k = sch.get_loops(blk)
+    io, ii = sch.split(i, factor=16)
+    jo, ji = sch.split(j, factor=16)
+    sch.reorder(io, jo, ii, ji, k)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.parallel(io)
+        sch.vectorize(ii)
+        sch.unroll(k)
+    return sch.mod

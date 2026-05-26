@@ -1,0 +1,84 @@
+<reasoning>We need to produce a Python file with apply_schedule that mutates schedule for matmul M=N=K=64, target llvm. Use tvm.s_tir.Schedule. Should apply simple transformations like tiling, loop reorder, bind threads for CUDA optionally, etc. Must preserve correctness.
+
+We need to import tvm and maybe tvm.tir? Not allowed. Use tvm.s_tir. So import tvm, and from tvm import te? Not needed. To get block "C", need to get schedule, then get block by name. Use sch.get_block("C") maybe.
+
+We can do:
+
+sch = tvm.s_tir.Schedule(ir_module)
+
+block = sch.get_block("C")
+
+i, j, k = sch.get_loops(block) maybe returns loops.
+
+We can apply tiling: sch.tile(i, j, tile_i=32, tile_j=32) returns inner loops.
+
+But schedule API details: In TVM 0.12+, s_tir.Schedule has methods: get_block, get_loops, tile, reorder, parallel, bind. Example:
+
+i, j, k = sch.get_loops(block) returns list of loop handles.
+
+Then we can do:
+
+io, ii = sch.split(i, factor=32)
+jo, ji = sch.split(j, factor=32)
+ko, ki = sch.split(k, factor=32)
+
+sch.reorder(io, jo, ko, ii, ji, ki)
+
+sch.parallel(io)
+
+Possibly vectorize inner loops.
+
+Will need to ensure block name "C". Use sch.get_block("C").
+
+Return sch.mod after modifications: sch.mod returns IRModule.
+
+Thus code:
+
+def apply_schedule(ir_module, target_name):
+    sch = tvm.s_tir.Schedule(ir_module)
+    block = sch.get_block("C")
+    i, j, k = sch.get_loops(block)
+    io, ii = sch.split(i, factor=32)
+    jo, ji = sch.split(j, factor=32)
+    ko, ki = sch.split(k, factor=32)
+    sch.reorder(io, jo, ko, ii, ji, ki)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.parallel(io)
+    return sch.mod
+
+Need to import tvm.s_tir? Not needed; we reference tvm.s_tir.Schedule.
+
+Potential issues: get_loops returns list of loop handles in order of loops around the block; typical matmul compute block may have loops (i, j, k). Good.
+
+We must ensure factor is integer; 32 works as 64/32 =2 tiling.
+
+Return sch.mod.
+
+Thus final code file: include __future__ import for annotations maybe.
+
+Let's craft final answer.</reasoning>from __future__ import annotations
+
+import tvm
+
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch = tvm.s_tir.Schedule(ir_module)
+    block = sch.get_block("C")
+    i, j, k = sch.get_loops(block)
+    io, ii = sch.split(i, factor=32)
+    jo, ji = sch.split(j, factor=32)
+    ko, ki = sch.split(k, factor=32)
+    sch.reorder(io, jo, ko, ii, ji, ki)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.parallel(io)
+    return sch.mod

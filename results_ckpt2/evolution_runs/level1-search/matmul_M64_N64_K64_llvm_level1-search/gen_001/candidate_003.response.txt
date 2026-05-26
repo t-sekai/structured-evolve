@@ -1,0 +1,45 @@
+<reasoning>We need to produce a mutated schedule: simple transformations like tiling, binding, vectorization. Use tvm.s_tir.Schedule. Must locate block "C". The shape M,N,K=64. We'll assume compute defined with block name "C". We'll apply block_tile, reorder, bind to thread axes if target is cuda else maybe parallel.
+
+We need import tvm, maybe also tvm.tir? Not allowed to import tvm.tir. Use tvm.s_tir.
+
+Implementation: def apply_schedule(ir_module, target_name): sch = tvm.s_tir.Schedule(ir_module) ; block = sch.get_block("C") ; i,j,k = sch.get_loops(block) ; we can tile i and j: i0,i1 = sch.split(i, factor=8); j0,j1 = sch.split(j, factor=8); sch.reorder(i0, j0, i1, j1, k) ; then if target_name == "cuda": sch.bind(i0, "blockIdx.x") ; sch.bind(j0, "blockIdx.y") ; sch.bind(i1, "threadIdx.x") ; sch.bind(j1, "threadIdx.y") ; else: sch.parallel(i0) ; maybe vectorize innermost loop k? but k is reduction axis; can't vectorize reduction. Could vectorize i1 maybe.
+
+We need to handle reduction loops: after tiling, we have loops i0,i1,j0,j1,k. We may also split k: ko, ki = sch.split(k, factor=8); sch.unroll(ki) ; maybe.
+
+Finally, return sch.mod.
+
+Make sure to import tvm.s_tir.
+
+Edge: get_loops returns list of loops up to that block's loops (including reduction loops). Use sch.get_loops(block).
+
+Implementation code.
+
+</reasoning>from __future__ import annotations
+
+import tvm
+import tvm.s_tir as s_tir
+
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch: s_tir.Schedule = s_tir.Schedule(ir_module)
+    blk = sch.get_block("C")
+    loops = sch.get_loops(blk)
+    i, j, k = loops[0], loops[1], loops[2]
+
+    i_outer, i_inner = sch.split(i, factor=8)
+    j_outer, j_inner = sch.split(j, factor=8)
+    k_outer, k_inner = sch.split(k, factor=8)
+
+    sch.reorder(i_outer, j_outer, i_inner, j_inner, k_outer, k_inner)
+
+    if target_name == "cuda":
+        sch.bind(i_outer, "blockIdx.x")
+        sch.bind(j_outer, "blockIdx.y")
+        sch.bind(i_inner, "threadIdx.x")
+        sch.bind(j_inner, "threadIdx.y")
+        sch.unroll(k_inner)
+    else:
+        sch.parallel(i_outer)
+        sch.unroll(k_inner)
+
+    return sch.mod

@@ -1,0 +1,38 @@
+# from tvm.script import ir as I
+# from tvm.script import tirx as T
+
+@I.ir_module
+class Module:
+    @T.prim_func
+    def main(A: T.Buffer((128, 128), "float32"), B: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")):
+        T.func_attr({"tir.noalias": True, "tirx.noalias": True})
+        # with T.sblock("root"):
+        C_global = T.sblock_alloc_buffer((128, 128))
+        for i_0_j_0_i_1_j_1_fused_fused in T.parallel(256):
+            for i_2_init, j_2_init, i_3_init in T.grid(16, 1, 1):
+                for j_3_fused_init in T.vectorized(4):
+                    with T.sblock("C_init"):
+                        vi = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused_fused // 64 * 32 + i_0_j_0_i_1_j_1_fused_fused % 16 // 8 * 16 + i_2_init + i_3_init)
+                        vj = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused_fused % 64 // 16 * 32 + i_0_j_0_i_1_j_1_fused_fused % 8 * 4 + j_2_init * 4 + j_3_fused_init)
+                        T.reads()
+                        T.writes(C_global[vi, vj])
+                        T.sblock_attr({"meta_schedule.tiling_structure": "SSRSRS"})
+                        C_global[vi, vj] = T.float32(0.0)
+            for k_0, i_2, j_2, k_1, i_3 in T.grid(16, 16, 1, 8, 1):
+                for j_3_fused in T.vectorized(4):
+                    with T.sblock("C_update"):
+                        vi = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused_fused // 64 * 32 + i_0_j_0_i_1_j_1_fused_fused % 16 // 8 * 16 + i_2 + i_3)
+                        vj = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused_fused % 64 // 16 * 32 + i_0_j_0_i_1_j_1_fused_fused % 8 * 4 + j_2 * 4 + j_3_fused)
+                        vk = T.axis.reduce(128, k_0 * 8 + k_1)
+                        T.reads(C_global[vi, vj], A[vi, vk], B[vk, vj])
+                        T.writes(C_global[vi, vj])
+                        T.sblock_attr({"meta_schedule.tiling_structure": "SSRSRS"})
+                        C_global[vi, vj] = C_global[vi, vj] + A[vi, vk] * B[vk, vj]
+            for ax0 in range(16):
+                for ax1_fused in T.vectorized(4):
+                    with T.sblock("C_global"):
+                        v0 = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused_fused // 64 * 32 + i_0_j_0_i_1_j_1_fused_fused % 16 // 8 * 16 + ax0)
+                        v1 = T.axis.spatial(128, i_0_j_0_i_1_j_1_fused_fused % 64 // 16 * 32 + i_0_j_0_i_1_j_1_fused_fused % 8 * 4 + ax1_fused)
+                        T.reads(C_global[v0, v1])
+                        T.writes(C[v0, v1])
+                        C[v0, v1] = C_global[v0, v1]

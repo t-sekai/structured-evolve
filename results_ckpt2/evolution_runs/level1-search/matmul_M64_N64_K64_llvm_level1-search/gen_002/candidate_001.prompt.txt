@@ -1,0 +1,44 @@
+Mutate this TVM schedule candidate for matmul shape
+        M=64, N=64, K=64, target=llvm.
+
+        Requirements:
+        - Return a complete Python file.
+        - Do not include reasoning, XML tags, Markdown, prose, or docstrings.
+        - Define exactly this callable:
+          def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+        - The function must return a tvm.IRModule.
+        - Preserve numerical correctness for C = A @ B.
+        - Prefer simple, valid TVM schedule transformations.
+        - This TVM build exposes tvm.s_tir.Schedule, not tvm.tir.Schedule.
+        - Do not write `from tvm import tir` or `import tvm.tir`.
+        - Use `sch = tvm.s_tir.Schedule(ir_module)` for schedule mutations.
+        - The matmul compute block is named "C".
+        - If unsure, make a conservative mutation rather than invalid code.
+        - The code may handle llvm and cuda differently.
+        - Do not import project-local modules.
+        - Do not read or write files.
+
+        This is generation 2, candidate 1.
+
+        Parent candidate:
+        from __future__ import annotations
+
+import tvm
+
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch = tvm.s_tir.Schedule(ir_module)
+    block = sch.get_block("C")
+    i, j, k = sch.get_loops(block)
+    io, ii = sch.split(i, factor=32)
+    jo, ji = sch.split(j, factor=32)
+    ko, ki = sch.split(k, factor=32)
+    sch.reorder(io, jo, ko, ii, ji, ki)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.parallel(io)
+    return sch.mod

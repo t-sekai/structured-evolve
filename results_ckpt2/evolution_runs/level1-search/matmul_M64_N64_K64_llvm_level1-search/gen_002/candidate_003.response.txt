@@ -1,0 +1,55 @@
+<reasoning>We need to produce a python file with the function apply_schedule that mutates schedule. Should be valid. Need to import tvm. Use tvm.s_tir.Schedule. Provide simple transformations. Ensure correctness: need to compute matmul shape 64x64. Splits factor 32 may produce loops sizes not divisible? 64 split factor 32 -> outer 2, inner 32. Works.
+
+But need to handle target_name maybe "llvm". For llvm we parallel outer loops. Also we may want to vectorize inner loops.
+
+We must not import tvm.tir. Use tvm.s_tir.
+
+Let's write file:
+
+from __future__ import annotations
+import tvm
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch = tvm.s_tir.Schedule(ir_module)
+    block = sch.get_block("C")
+    i, j, k = sch.get_loops(block)
+    io, ii = sch.split(i, factor=32)
+    jo, ji = sch.split(j, factor=32)
+    ko, ki = sch.split(k, factor=32)
+    sch.reorder(io, jo, ko, ii, ji, ki)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.parallel(io)
+        sch.unroll(ii)
+        sch.unroll(ji)
+    return sch.mod
+
+Make sure variable names not conflict. The loops returned from get_loops may be list. That's fine.
+
+Return sch.mod.
+
+That's it.</reasoning>from __future__ import annotations
+import tvm
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch = tvm.s_tir.Schedule(ir_module)
+    block = sch.get_block("C")
+    i, j, k = sch.get_loops(block)
+    io, ii = sch.split(i, factor=32)
+    jo, ji = sch.split(j, factor=32)
+    ko, ki = sch.split(k, factor=32)
+    sch.reorder(io, jo, ko, ii, ji, ki)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.parallel(io)
+        sch.unroll(ii)
+        sch.unroll(ji)
+    return sch.mod

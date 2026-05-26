@@ -1,0 +1,7 @@
+run_id,experiment_method,evolution_kind,target,shape,generation,best_fitness_score,best_latency_ms,candidates,correctness_rate,compile_rate
+matmul_M64_N64_K64_llvm_level1-search,level1-search,level_1_direct_schedule,llvm,M64_N64_K64,0.0,7.351211479651845,0.136032,1,1.0,1.0
+matmul_M64_N64_K64_llvm_level1-search,level1-search,level_1_direct_schedule,llvm,M64_N64_K64,1.0,7.326436714239664,0.1364919999999999,4,0.5,0.5
+matmul_M64_N64_K64_llvm_level1-search,level1-search,level_1_direct_schedule,llvm,M64_N64_K64,2.0,7.338085151140094,0.1362753333333333,4,0.5,0.5
+matmul_M64_N64_K64_llvm_level2-search,level2-search,level_2_evolved_search_space,llvm,M64_N64_K64,0.0,13.365172143417206,0.0748213333333333,1,1.0,1.0
+matmul_M64_N64_K64_llvm_level2-search,level2-search,level_2_evolved_search_space,llvm,M64_N64_K64,1.0,18.246732314354706,0.0548043333333333,4,1.0,1.0
+matmul_M64_N64_K64_llvm_level2-search,level2-search,level_2_evolved_search_space,llvm,M64_N64_K64,2.0,8.427558115036168,0.1186583333333333,4,1.0,1.0

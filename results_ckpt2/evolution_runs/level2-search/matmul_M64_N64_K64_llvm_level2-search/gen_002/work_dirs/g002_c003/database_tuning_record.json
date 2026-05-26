@@ -1,0 +1,1 @@
+[0,[[[["EnterPostproc",[],[],[]]],[]],[0.00014533661358024691944],{"keys":["cpu"],"kind":"llvm","mcpu":"generic","num-cores":128,"tag":""},[["TENSOR","float32",[64,64]],["TENSOR","float32",[64,64]],["TENSOR","float32",[64,64]]]]]

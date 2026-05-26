@@ -1,0 +1,74 @@
+<reasoning>We need to produce a mutated schedule for matmul shape M=N=K=64, target llvm. Must use tvm.s_tir.Schedule. Need to find compute block named "C". We'll apply some simple tiling, loop reordering, and possibly vectorization. Must be valid for any target, maybe differentiate for llvm vs cuda. Keep simple.
+
+Implementation: function takes ir_module, target_name. We'll create schedule = tvm.s_tir.Schedule(ir_module). Find block "C". Use sch.get_block("C")? In TVM schedule API, you can use sch.get_block and then get loops with sch.get_loops(block). Then apply tile, reorder, bind etc.
+
+Example:
+
+sch = tvm.s_tir.Schedule(ir_module)
+block = sch.get_block("C")
+i, j, k = sch.get_loops(block)
+# tile i,j
+io, ii = sch.split(i, factors=[None, 16])  # maybe factor 16
+jo, ji = sch.split(j, factors=[None, 16])
+sch.reorder(io, jo, ii, ji, k)
+# vectorize innermost
+sch.vectorize(ii)
+# unroll k
+sch.unroll(k)
+If target is cuda, then bind to threadIdx etc. Use target_name check.
+
+Need to import tvm.s_tir? Actually tvm.s_tir is a submodule. Use tvm.s_tir.Schedule.
+
+Return ir_module after schedule? Usually you need to lower? The function expects to return a mutated IRModule (schedule applied). In TVM, schedule can be used to produce lowered IR module via sch.mod? Actually Schedule has .mod attribute returning IRModule after transformations. So after schedule, return sch.mod.
+
+Thus final file:
+
+from __future__ import annotations
+import tvm
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch = tvm.s_tir.Schedule(ir_module)
+    block = sch.get_block("C")
+    i, j, k = sch.get_loops(block)
+    # tile i and j with factor 16
+    io, ii = sch.split(i, factor=16)
+    jo, ji = sch.split(j, factor=16)
+    sch.reorder(io, jo, ii, ji, k)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.vectorize(ii)
+        sch.unroll(k)
+    return sch.mod
+
+Check API: sch.split(loop, factor=...). There's also split with factor or nth. Use factor=16. reorder expects list of loops.
+
+Potential errors: sch.get_loops returns list of loops in order. Might need to pass loops to split returns (outer, inner). Good.
+
+Make sure we import tvm only.
+
+Return sch.mod.
+
+That's it.</reasoning>from __future__ import annotations
+
+import tvm
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch = tvm.s_tir.Schedule(ir_module)
+    blk = sch.get_block("C")
+    i, j, k = sch.get_loops(blk)
+    io, ii = sch.split(i, factor=16)
+    jo, ji = sch.split(j, factor=16)
+    sch.reorder(io, jo, ii, ji, k)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.vectorize(ii)
+        sch.unroll(k)
+    return sch.mod

@@ -1,0 +1,23 @@
+<reasoning>We need to produce final python file with function apply_schedule. Should mutate schedule. Provide simple transformations. Ensure correct imports. Use tvm.s_tir.Schedule. Should handle target_name. Use get_block, get_loops. For safety maybe add compute_at? But simple splitting may be okay. Provide correct binding for cuda. For llvm, parallelize outer loops. Ensure shape 64*64*64; splitting factor 32 works. Should also maybe vectorize innermost. Add sch.vectorize(ki, 8) maybe but not required.
+
+Return sch.mod. Ensure we import tvm. No other imports. Provide file.</reasoning>from __future__ import annotations
+
+import tvm
+
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch = tvm.s_tir.Schedule(ir_module)
+    block = sch.get_block("C")
+    i, j, k = sch.get_loops(block)
+    io, ii = sch.split(i, factor=32)
+    jo, ji = sch.split(j, factor=32)
+    ko, ki = sch.split(k, factor=32)
+    sch.reorder(io, jo, ko, ii, ji, ki)
+    if target_name == "cuda":
+        sch.bind(io, "blockIdx.x")
+        sch.bind(jo, "blockIdx.y")
+        sch.bind(ii, "threadIdx.x")
+        sch.bind(ji, "threadIdx.y")
+    else:
+        sch.parallel(io)
+    return sch.mod

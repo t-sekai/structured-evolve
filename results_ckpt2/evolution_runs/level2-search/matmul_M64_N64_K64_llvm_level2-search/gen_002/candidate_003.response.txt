@@ -1,0 +1,80 @@
+<reasoning>We need to produce a Python file with generate_design_space function as described, but need to "mutate this TVM MetaSchedule search-space candidate". Probably need to improve or adjust. Must return list of schedules, using sch.copy before mutating alternatives. Keep correctness. Provide 2-4 conservative variants. Already have 3 variants. Maybe adjust to ensure correct usage of cache_write and cache_read with proper scopes. Also ensure we attach compute_at for caches? But simple.
+
+We must not import tvm.tir. Use tvm.s_tir.Schedule. Use get_sblock.
+
+We need to ensure we reference tvm.s_tir maybe import tvm. Use tvm.s_tir.Schedule type annotation.
+
+Write code with try/except.
+
+Make sure to use proper arguments for split: factors list or maybe extents? In TVM schedule API, split takes loop and factor (int) or nparts. Usually split(loop, factor=...), but using factors list with [None, 4] is valid? Actually in MetaSchedule schedule API, split takes loop and factor (int) or nparts. There's also split loop with "factors" param for hierarchical splits? In schedule API, there is split(loop, factor=None, nparts=None). But using list may be wrong. Safer to use split(i, factor=4) for inner part? But we need outer and inner loops. Actually split returns outer, inner loops. So split(i, factor=4) yields outer, inner. Use tiled.split(i, factor=4). That yields i_o, i_i.
+
+Let's implement using factor.
+
+Similarly for other splits.
+
+Also reorder expects list of loops.
+
+Implement.
+
+Also for cache_write, need to specify buffer index maybe? Using block, 0 for C buffer? That's fine.
+
+Return spaces.
+
+Write file with from __future__ import annotations and import tvm.
+
+Make sure function returns List[tvm.s_tir.Schedule] maybe not needed.
+
+Ok produce final code.</reasoning>from __future__ import annotations
+import tvm
+
+def generate_design_space(sch: tvm.s_tir.Schedule):
+    spaces = [sch]
+
+    # Variant 1: small tile 4x4 with parallel and vectorize
+    try:
+        tiled = sch.copy()
+        block = tiled.get_sblock("C", func_name="main")
+        i, j, k = tiled.get_loops(block)
+        i_o, i_i = tiled.split(i, factor=4)
+        j_o, j_i = tiled.split(j, factor=4)
+        tiled.reorder(i_o, j_o, i_i, j_i, k)
+        tiled.parallel(i_o)
+        tiled.vectorize(j_i)
+        spaces.append(tiled)
+    except Exception:
+        pass
+
+    # Variant 2: larger tile 8x8 with reduction split and unroll
+    try:
+        tiled = sch.copy()
+        block = tiled.get_sblock("C", func_name="main")
+        i, j, k = tiled.get_loops(block)
+        i_o, i_i = tiled.split(i, factor=8)
+        j_o, j_i = tiled.split(j, factor=8)
+        k_o, k_i = tiled.split(k, factor=8)
+        tiled.reorder(i_o, j_o, k_o, i_i, j_i, k_i)
+        tiled.parallel(i_o)
+        tiled.vectorize(j_i)
+        tiled.unroll(k_i)
+        spaces.append(tiled)
+    except Exception:
+        pass
+
+    # Variant 3: cache reads/writes with tile 4x4
+    try:
+        tiled = sch.copy()
+        block = tiled.get_sblock("C", func_name="main")
+        a = tiled.cache_read(block, 0, "global")
+        b = tiled.cache_read(block, 1, "global")
+        c = tiled.cache_write(block, 0, "global")
+        i, j, k = tiled.get_loops(block)
+        i_o, i_i = tiled.split(i, factor=4)
+        j_o, j_i = tiled.split(j, factor=4)
+        tiled.reorder(i_o, j_o, i_i, j_i, k)
+        tiled.parallel(i_o)
+        tiled.vectorize(j_i)
+        spaces.append(tiled)
+    except Exception:
+        pass
+
+    return spaces

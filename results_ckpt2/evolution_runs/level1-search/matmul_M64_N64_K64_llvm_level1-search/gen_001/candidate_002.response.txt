@@ -1,0 +1,64 @@
+<reasoning>We need to produce a Python file with apply_schedule function that mutates schedule for matmul M=N=K=64, target llvm. Use tvm.s_tir.Schedule. Provide simple schedule: maybe block tiling, loop reorder, vectorization. Must preserve correctness.
+
+We need to import tvm, possibly tvm.tir? Not allowed to import tvm.tir directly. Use tvm.s_tir. The block name is "C". So we need to get the block, apply schedule.
+
+Implementation steps:
+
+- sch = tvm.s_tir.Schedule(ir_module)
+- Find block: block = sch.get_block("C")
+- Get loops: loops = sch.get_loops(block)
+- loops likely 3 loops: i, j, k (maybe named). We'll tile i and j.
+
+- For simplicity, we can do: sch.tile(loops[0], loops[1], [64, 64])? Actually tile expects factor. Use tile with factor 8 maybe.
+
+- Let's tile i and j with factor 8: i_outer, i_inner = sch.split(loops[0], factor=8); j_outer, j_inner = sch.split(loops[1], factor=8)
+
+- Then reorder: sch.reorder(i_outer, j_outer, i_inner, j_inner, loops[2]) maybe.
+
+- Then vectorize inner loops: sch.vectorize(i_inner) maybe.
+
+- Also parallelize outer loops: sch.parallel(i_outer)
+
+- Finally, return sch.mod
+
+Need to handle target name: if target_name includes "cuda", we may bind threads. But optional.
+
+We'll just check: if "cuda" in target_name.lower(): use bind_thread_axis.
+
+Implementation for cuda:
+
+- block = sch.get_block("C")
+- loops = sch.get_loops(block)
+- i, j, k = loops
+- tile i, j with factor 16: i_o,i_i = sch.split(i, factor=16); j_o,j_i = sch.split(j, factor=16)
+- bind i_o to "blockIdx.y", j_o to "blockIdx.x", i_i to "threadIdx.y", j_i to "threadIdx.x"
+- maybe also split k for reduction.
+
+But keep simple.
+
+We'll need tvm.tir.thread_axis? Use tvm.tir.thread_axis but we can't import tvm.tir directly? Could use tvm.tir.thread_axis via tvm.tir? The rule says not import tvm.tir but we can reference tvm.tir.thread_axis as attribute? That's still using tvm.tir. Possibly allowed as attribute. Safer to avoid cuda specifics; just keep generic schedule.
+
+Thus implement simple schedule for all targets.
+
+Return sch.mod
+
+Make sure to import tvm.s_tir.
+
+Write file.
+
+</reasoning>from __future__ import annotations
+
+import tvm
+import tvm.s_tir
+
+def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
+    sch = tvm.s_tir.Schedule(ir_module)
+    block = sch.get_block("C")
+    loops = sch.get_loops(block)
+    if len(loops) >= 2:
+        i_outer, i_inner = sch.split(loops[0], factor=8)
+        j_outer, j_inner = sch.split(loops[1], factor=8)
+        sch.reorder(i_outer, j_outer, i_inner, j_inner, *loops[2:])
+        sch.parallel(i_outer)
+        sch.vectorize(i_inner)
+    return sch.mod

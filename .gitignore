@@ -36,7 +36,6 @@ CMakeFiles/
 
 # Experiment outputs
 results/
-results*/
 *.log
 
 # Generated run artifacts. Keep seed candidates, ignore evolution outputs.
