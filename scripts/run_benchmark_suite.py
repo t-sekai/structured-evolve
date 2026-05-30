@@ -67,7 +67,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--generated-search-space-path",
         type=Path,
-        default=Path("generated/search_spaces/basic_matmul.py"),
+        default=None,
+        help="Existing Level 2 search-space candidate. Defaults to a target-specific seed.",
     )
     parser.add_argument("--max-trials-global", type=int, default=64)
     parser.add_argument("--max-trials-per-task", type=int, default=None)

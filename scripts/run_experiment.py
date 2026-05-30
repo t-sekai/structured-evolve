@@ -61,8 +61,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--generated-search-space-path",
         type=Path,
-        default=Path("generated/search_spaces/basic_matmul.py"),
-        help="Existing Level 2 search-space candidate for level2-candidate.",
+        default=None,
+        help="Existing Level 2 search-space candidate. Defaults to a target-specific seed.",
     )
     parser.add_argument("--max-trials-global", type=int, default=64)
     parser.add_argument("--max-trials-per-task", type=int, default=None)
@@ -86,7 +86,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--level2-seed-candidate-path",
         type=Path,
-        default=Path("generated/search_spaces/basic_matmul.py"),
+        default=None,
+        help="Level 2 evolution seed. Defaults to a target-specific seed.",
     )
     parser.add_argument("--generations", type=int, default=1)
     parser.add_argument("--population-size", type=int, default=2)

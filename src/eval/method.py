@@ -63,7 +63,7 @@ class MethodRunConfig:
     post_optimization: bool = False
     evolution_run_dir: Path | None = None
     level1_seed_candidate_path: Path = Path("generated/schedules/identity.py")
-    level2_seed_candidate_path: Path = Path("generated/search_spaces/basic_matmul.py")
+    level2_seed_candidate_path: Path | None = None
     generations: int = 1
     population_size: int = 2
     survivors: int = 1
@@ -97,6 +97,9 @@ def run_experiment_method(
 
 def _run_existing_candidate(*, method: str, config: MethodRunConfig) -> dict[str, Any]:
     strategy = get_strategy(METHOD_TO_STRATEGY[method])
+    generated_search_space_path = config.generated_search_space_path
+    if method == "level2-candidate" and generated_search_space_path is None:
+        generated_search_space_path = default_level2_search_space_path(config.target_name)
     strategy_config = StrategyBuildConfig(
         work_dir=config.tuning_work_dir,
         max_trials_global=config.max_trials_global,
@@ -108,7 +111,7 @@ def _run_existing_candidate(*, method: str, config: MethodRunConfig) -> dict[str
         task_scheduler=config.task_scheduler,
         post_optimization=config.post_optimization,
         generated_schedule_path=config.generated_schedule_path,
-        generated_search_space_path=config.generated_search_space_path,
+        generated_search_space_path=generated_search_space_path,
     )
     return run_matmul_experiment(
         strategy=strategy,
@@ -175,7 +178,10 @@ def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
 
     start = perf_counter()
     history = run_search_space_evolution(
-        seed_candidate_path=config.level2_seed_candidate_path,
+        seed_candidate_path=(
+            config.level2_seed_candidate_path
+            or default_level2_search_space_path(config.target_name)
+        ),
         run_dir=run_dir,
         output_dir=config.output_dir,
         generations=config.generations,
@@ -268,6 +274,15 @@ def _run_evolved_best(
     result["evolution_history"] = str(run_dir / "history.json")
     result["evolution_best"] = str(run_dir / "best.json")
     return result
+
+
+def default_level2_search_space_path(target_name: str) -> Path:
+    """Return the built-in Level-2 seed for one target."""
+    if target_name == "llvm":
+        return Path("generated/search_spaces/basic_matmul.py")
+    if target_name == "cuda":
+        return Path("generated/search_spaces/cuda_matmul.py")
+    raise ValueError(f"Unsupported target: {target_name}")
 
 
 def _base_metadata(

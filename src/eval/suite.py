@@ -117,7 +117,15 @@ def run_suite_case(
     config: SuiteRunConfig,
 ) -> dict[str, Any]:
     """Run one experiment method against one task case."""
-    from src.eval.method import MethodRunConfig, run_experiment_method
+    from src.eval.method import (
+        MethodRunConfig,
+        default_level2_search_space_path,
+        run_experiment_method,
+    )
+
+    generated_search_space_path = method_case.generated_search_space_path
+    if method_case.name == "level2-candidate" and generated_search_space_path is None:
+        generated_search_space_path = default_level2_search_space_path(task.target)
 
     return run_experiment_method(
         method=method_case.name,
@@ -136,7 +144,7 @@ def run_suite_case(
             benchmark_group="final_benchmark",
             bad_baseline=config.bad_baseline,
             generated_schedule_path=method_case.generated_schedule_path,
-            generated_search_space_path=method_case.generated_search_space_path,
+            generated_search_space_path=generated_search_space_path,
             max_trials_global=method_case.max_trials_global,
             max_trials_per_task=method_case.max_trials_per_task,
             num_trials_per_iter=method_case.num_trials_per_iter,
@@ -150,7 +158,7 @@ def run_suite_case(
             ),
             level2_seed_candidate_path=(
                 method_case.generated_search_space_path
-                or Path("generated/search_spaces/basic_matmul.py")
+                or default_level2_search_space_path(task.target)
             ),
             generations=method_case.generations,
             population_size=method_case.population_size,

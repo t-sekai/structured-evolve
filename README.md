@@ -134,6 +134,11 @@ Run a Level 2 generated search-space candidate refined by TVM MetaSchedule:
 python scripts/run_experiment.py --method level2-candidate --generated-search-space-path generated/search_spaces/basic_matmul.py --target llvm --M 16 --N 16 --K 16 --max-trials-global 4 --num-trials-per-iter 2 --cost-model random --task-scheduler round-robin --num-tuning-cores 1
 ```
 
+For `--target cuda`, Level 2 candidate and search methods default to
+`generated/search_spaces/cuda_matmul.py`. LLVM defaults to
+`generated/search_spaces/basic_matmul.py`. Pass an explicit path to override the
+target-specific seed.
+
 Run a dry-run Level 2 search experiment:
 
 ```bash
