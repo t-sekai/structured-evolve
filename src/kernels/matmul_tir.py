@@ -3,12 +3,7 @@
 from __future__ import annotations
 
 import tvm
-from tvm.script import ir as I
-
-try:
-    from tvm.script import tir as T
-except ImportError:
-    from tvm.script import tirx as T
+from tvm import te
 
 try:
     from tvm import s_tir as _s_tir
@@ -23,55 +18,16 @@ def create_matmul_ir_module(M: int, N: int, K: int) -> tvm.IRModule:
     """Create TensorIR for C[M, N] = sum_k A[M, K] * B[K, N]."""
     _validate_shape(M, N, K)
 
-    if hasattr(T, "sblock"):
-
-        @I.ir_module(check_well_formed=False)
-        class MatmulModule:
-            @T.prim_func
-            def main(
-                A: T.Buffer((M, K), "float32"),
-                B: T.Buffer((K, N), "float32"),
-                C: T.Buffer((M, N), "float32"),
-            ) -> None:
-                T.func_attr(
-                    {
-                        "global_symbol": "main",
-                        "tir.noalias": True,
-                        "tirx.noalias": True,
-                    }
-                )
-                for i, j, k in T.grid(M, N, K):
-                    with T.sblock("C"):
-                        vi, vj, vk = T.axis.remap("SSR", [i, j, k])
-                        with T.init():
-                            C[vi, vj] = T.float32(0.0)
-                        C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vk, vj]
-
-        return MatmulModule
-
-    @I.ir_module(check_well_formed=False)
-    class MatmulModule:
-        @T.prim_func
-        def main(
-            A: T.Buffer((M, K), "float32"),
-            B: T.Buffer((K, N), "float32"),
-            C: T.Buffer((M, N), "float32"),
-        ) -> None:
-            T.func_attr(
-                {
-                    "global_symbol": "main",
-                    "tir.noalias": True,
-                    "tirx.noalias": True,
-                }
-            )
-            for i, j, k in T.grid(M, N, K):
-                with T.block("C"):
-                    vi, vj, vk = T.axis.remap("SSR", [i, j, k])
-                    with T.init():
-                        C[vi, vj] = T.float32(0.0)
-                    C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vk, vj]
-
-    return MatmulModule
+    A = te.placeholder((M, K), name="A", dtype="float32")
+    B = te.placeholder((K, N), name="B", dtype="float32")
+    k = te.reduce_axis((0, K), name="k")
+    C = te.compute(
+        (M, N),
+        lambda i, j: te.sum(A[i, k] * B[k, j], axis=k),
+        name="C",
+    )
+    prim_func = te.create_prim_func([A, B, C]).with_attr("global_symbol", "main")
+    return tvm.IRModule.from_expr(prim_func)
 
 
 def apply_schedule_for_target(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:

@@ -42,7 +42,16 @@ def mutation_prompt(
         - This TVM build exposes tvm.s_tir.Schedule, not tvm.tir.Schedule.
         - Do not write `from tvm import tir` or `import tvm.tir`.
         - Use `sch = tvm.s_tir.Schedule(ir_module)` for schedule mutations.
-        - The matmul compute block is named "C".
+        - The matmul compute block is named "C"; use
+          `sch.get_sblock("C", func_name="main")`.
+        - Use `sch.split(loop, factors=[None, factor])`, not
+          `sch.split(loop, factor=factor)`.
+        - Return `sch.mod`, not `sch.mod()`.
+        - For llvm, apply at most one `sch.parallel(...)` and at most one
+          `sch.vectorize(...)`.
+        - Do not pass a `factor=` argument to `sch.vectorize(...)`.
+        - Wrap schedule transformations in `try`/`except` and return the
+          original `ir_module` if a transformation fails.
         - If unsure, make a conservative mutation rather than invalid code.
         - The code may handle llvm and cuda differently.
         - Do not import project-local modules.
