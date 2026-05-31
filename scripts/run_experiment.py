@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one first-class experiment method on one matmul task."""
+"""Run one first-class experiment method on one workload task."""
 
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ METHOD_NAMES = (
     "level2-search",
 )
 
+WORKLOAD_NAMES = ("matmul", "conv2d")
+
 LEVEL2_FINAL_EVALUATION_POLICIES = (
     "fresh-retune",
     "exact-winner",
@@ -41,9 +43,29 @@ def parse_args() -> argparse.Namespace:
         default="fixed",
         help="Experiment method to run.",
     )
+    # Matmul-specific parameters with defaults for a small square matmul.
     parser.add_argument("--M", type=int, default=256, help="Rows of A and C.")
     parser.add_argument("--N", type=int, default=256, help="Columns of B and C.")
     parser.add_argument("--K", type=int, default=256, help="Reduction dimension.")
+    
+    parser.add_argument(
+        "--workload",
+        choices=WORKLOAD_NAMES,
+        default="matmul",
+        help="Workload to benchmark.",
+    )
+    # Conv2D-specific parameters with defaults for a small convolution.
+    parser.add_argument("--batch", type=int, default=1, help="Conv2D batch size.")
+    parser.add_argument("--in-channels", type=int, default=3, help="Conv2D input channels.")
+    parser.add_argument("--height", type=int, default=16, help="Conv2D input height.")
+    parser.add_argument("--width", type=int, default=16, help="Conv2D input width.")
+    parser.add_argument("--out-channels", type=int, default=8, help="Conv2D output channels.")
+    parser.add_argument("--kernel-h", type=int, default=3, help="Conv2D kernel height.")
+    parser.add_argument("--kernel-w", type=int, default=3, help="Conv2D kernel width.")
+    parser.add_argument("--stride", type=int, default=1, help="Conv2D stride.")
+    parser.add_argument("--padding", type=int, default=1, help="Conv2D zero padding.")
+    
+    
     parser.add_argument("--target", choices=("llvm", "cuda"), default="llvm")
     parser.add_argument("--num-warmup", type=int, default=3)
     parser.add_argument("--num-trials", type=int, default=10)
@@ -124,6 +146,7 @@ def parse_args() -> argparse.Namespace:
             "generator or benchmark the exact schedule selected during search."
         ),
     )
+    # Ablation flags
     parser.add_argument(
         "--disable-evaluator-feedback",
         action="store_true",
@@ -144,6 +167,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use one valid non-elite diverse inspiration source when available.",
     )
+
     parser.add_argument(
         "--use-bedrock",
         action="store_true",
@@ -158,10 +182,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    for name in (
-        "M",
-        "N",
-        "K",
+    positive_names = [
         "num_warmup",
         "num_trials",
         "benchmark_invocations",
@@ -170,7 +191,26 @@ def validate_args(args: argparse.Namespace) -> None:
         "generations",
         "population_size",
         "survivors",
-    ):
+    ]
+    if args.workload == "matmul":
+        positive_names.extend(["M", "N", "K"])
+    else:
+        positive_names.extend(
+            [
+                "batch",
+                "in_channels",
+                "height",
+                "width",
+                "out_channels",
+                "kernel_h",
+                "kernel_w",
+                "stride",
+            ]
+        )
+        if args.padding < 0:
+            raise ValueError(f"--padding must be non-negative, got {args.padding}")
+
+    for name in positive_names:
         value = getattr(args, name)
         if name == "generations":
             if value < 0:
@@ -214,6 +254,8 @@ def main() -> int:
                 K=args.K,
                 target_name=args.target,
                 output_dir=args.output_dir,
+                workload_name=args.workload,
+                workload_params=_workload_params(args),
                 num_warmup=args.num_warmup,
                 num_trials=args.num_trials,
                 benchmark_invocations=args.benchmark_invocations,
@@ -271,6 +313,8 @@ def _print_result(result: dict) -> None:
     print(f"experiment_id: {result.get('experiment_id')}")
     print(f"run_id: {result.get('run_id')}")
     print(f"method: {result.get('experiment_method')}")
+    print(f"workload: {result.get('workload_name')}")
+    print(f"shape: {result.get('shape')}")
     print(f"strategy: {result['strategy']}")
     print(f"level: {result['level']}")
     if result.get("final_evaluation_policy"):
@@ -306,7 +350,31 @@ def _bedrock_client(args: argparse.Namespace):
 
 
 def _default_run_id(args: argparse.Namespace) -> str:
-    return f"matmul_M{args.M}_N{args.N}_K{args.K}_{args.target}_{args.method}"
+    if args.workload == "matmul":
+        shape = f"M{args.M}_N{args.N}_K{args.K}"
+    else:
+        shape = (
+            f"B{args.batch}_CI{args.in_channels}_H{args.height}_W{args.width}_"
+            f"CO{args.out_channels}_KH{args.kernel_h}_KW{args.kernel_w}_"
+            f"S{args.stride}_P{args.padding}"
+        )
+    return f"{args.workload}_{shape}_{args.target}_{args.method}"
+
+
+def _workload_params(args: argparse.Namespace) -> dict[str, int]:
+    if args.workload != "conv2d":
+        return {}
+    return {
+        "batch": args.batch,
+        "in_channels": args.in_channels,
+        "height": args.height,
+        "width": args.width,
+        "out_channels": args.out_channels,
+        "kernel_h": args.kernel_h,
+        "kernel_w": args.kernel_w,
+        "stride": args.stride,
+        "padding": args.padding,
+    }
 
 
 def _parse_tuning_cores(value: str) -> int | str:

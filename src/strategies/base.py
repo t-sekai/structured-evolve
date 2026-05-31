@@ -1,21 +1,20 @@
-"""Common interfaces for pluggable matmul scheduling strategies."""
+"""Common interfaces for pluggable workload scheduling strategies."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TYPE_CHECKING
 
 import tvm
+
+if TYPE_CHECKING:
+    from src.kernels.workloads import Workload
 
 
 @dataclass(frozen=True)
 class StrategyBuildConfig:
-    """Configuration shared by scheduling strategies.
-
-    Later LLM-generated schedule and search-space strategies should add their own
-    fields around this object rather than changing the evaluation pipeline.
-    """
+    """Configuration shared by scheduling strategies."""
 
     work_dir: Path | None = None
     max_trials_global: int = 64
@@ -30,6 +29,7 @@ class StrategyBuildConfig:
     generated_search_space_path: Path | None = None
     saved_scheduled_module_path: Path | None = None
     saved_scheduled_module_json_path: Path | None = None
+    workload_name: str = "matmul"
 
 
 @dataclass(frozen=True)
@@ -41,8 +41,8 @@ class StrategyBuildResult:
     metadata: dict[str, Any]
 
 
-class MatmulStrategy(Protocol):
-    """A strategy that turns the canonical matmul IRModule into a compiled module."""
+class SchedulingStrategy(Protocol):
+    """A strategy that turns a canonical workload IRModule into a compiled module."""
 
     name: str
     level: str
@@ -50,10 +50,11 @@ class MatmulStrategy(Protocol):
     def build(
         self,
         *,
+        workload: "Workload",
         ir_module: tvm.IRModule,
         target: tvm.target.Target,
         target_name: str,
         config: StrategyBuildConfig,
     ) -> StrategyBuildResult:
-        """Schedule, tune, or otherwise compile a matmul IRModule."""
+        """Schedule, tune, or otherwise compile a workload IRModule."""
         raise NotImplementedError

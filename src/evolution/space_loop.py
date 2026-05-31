@@ -8,10 +8,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from src.eval.experiment import record_rejected_matmul_experiment, run_matmul_experiment
+from src.eval.experiment import record_rejected_workload_experiment, run_workload_experiment
 from src.evolution.bedrock_client import BedrockClient
 from src.evolution.candidate import Candidate
-from src.evolution.cascade import preflight_generated_search_space
+from src.evolution.cascade import preflight_generated_workload_search_space
 from src.evolution.fitness import FitnessResult, score_result
 from src.evolution.prompts import (
     SYSTEM_PROMPT,
@@ -20,6 +20,7 @@ from src.evolution.prompts import (
     strip_code_fences,
 )
 from src.evolution.selection import annotate_source, plan_metadata, plan_next_generation
+from src.kernels.workloads import Workload, make_matmul_workload
 from src.strategies import StrategyBuildConfig, get_strategy
 
 
@@ -47,6 +48,7 @@ def run_search_space_evolution(
     num_tuning_cores: int | str,
     bedrock_client: BedrockClient | None,
     dry_run: bool,
+    workload: Workload | None = None,
     experiment_id: str | None = None,
     suite_name: str | None = None,
     benchmark_group: str | None = None,
@@ -57,6 +59,9 @@ def run_search_space_evolution(
     enable_diverse_inspiration: bool = False,
 ) -> list[dict[str, Any]]:
     """Run an OpenEvolve-style loop over MetaSchedule search-space files."""
+    # M/N/K are kept for older matmul CLI callers; workload carries the actual
+    # kernel identity, prompt context, input generation, and correctness oracle.
+    workload = workload or make_matmul_workload(M, N, K)
     if generations < 0:
         raise ValueError(f"generations must be non-negative, got {generations}")
     if population_size <= 0:
@@ -92,9 +97,11 @@ def run_search_space_evolution(
             "population_size": population_size,
             "survivors": survivors,
             "target": target_name,
-            "M": M,
-            "N": N,
-            "K": K,
+            "task_name": workload.name,
+            "workload_name": workload.name,
+            "kernel_name": workload.kernel_name,
+            "shape": workload.shape_id,
+            **dict(workload.metadata),
             "num_warmup": num_warmup,
             "num_trials": num_trials,
             "benchmark_invocations": benchmark_invocations,
@@ -136,6 +143,7 @@ def run_search_space_evolution(
                 M=M,
                 N=N,
                 K=K,
+                workload=workload,
                 num_warmup=num_warmup,
                 num_trials=num_trials,
                 benchmark_invocations=benchmark_invocations,
@@ -179,6 +187,7 @@ def run_search_space_evolution(
             M=M,
             N=N,
             K=K,
+            workload=workload,
             bedrock_client=bedrock_client,
             dry_run=dry_run,
             include_evaluator_feedback=include_evaluator_feedback,
@@ -202,6 +211,7 @@ def _evaluate_candidate(
     M: int,
     N: int,
     K: int,
+    workload: Workload,
     num_warmup: int,
     num_trials: int,
     benchmark_invocations: int,
@@ -243,20 +253,16 @@ def _evaluate_candidate(
         ),
     }
     if enable_rejection_cascade:
-        cascade = preflight_generated_search_space(
+        cascade = preflight_generated_workload_search_space(
             candidate.path,
-            m=M,
-            n=N,
-            k=K,
+            workload=workload,
             target_name=target_name,
         )
         metadata = {**metadata, **cascade.metadata}
         if not cascade.passed:
-            result = record_rejected_matmul_experiment(
+            result = record_rejected_workload_experiment(
+                workload=workload,
                 strategy=strategy,
-                M=M,
-                N=N,
-                K=K,
                 target_name=target_name,
                 num_warmup=num_warmup,
                 num_trials=num_trials,
@@ -279,11 +285,13 @@ def _evaluate_candidate(
         }
 
     safe_id = candidate.candidate_id.replace("/", "_")
-    result = run_matmul_experiment(
+    result = run_workload_experiment(
+        workload=workload,
         strategy=strategy,
         strategy_config=StrategyBuildConfig(
             work_dir=generation_dir / "work_dirs" / safe_id,
             generated_search_space_path=candidate.path,
+            workload_name=workload.name,
             max_trials_global=max_trials_global,
             num_trials_per_iter=num_trials_per_iter,
             cost_model=cost_model,
@@ -291,9 +299,6 @@ def _evaluate_candidate(
             seed=seed,
             num_tuning_cores=num_tuning_cores,
         ),
-        M=M,
-        N=N,
-        K=K,
         target_name=target_name,
         num_warmup=num_warmup,
         num_trials=num_trials,
@@ -335,6 +340,7 @@ def _make_next_generation(
     M: int,
     N: int,
     K: int,
+    workload: Workload,
     bedrock_client: BedrockClient | None,
     dry_run: bool,
     include_evaluator_feedback: bool,
@@ -395,6 +401,8 @@ def _make_next_generation(
             M=M,
             N=N,
             K=K,
+            workload_context=workload.prompt_context,
+            primary_block_name=workload.primary_block_name,
             generation=generation,
             candidate_index=index,
             parent_feedback=(

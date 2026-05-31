@@ -11,7 +11,7 @@ import tvm
 
 from src.eval.benchmark import _array, _empty, _get_device, _make_target
 from src.eval.correctness import check_against_reference
-from src.kernels.matmul_tir import create_matmul_ir_module
+from src.kernels.workloads import Workload, make_matmul_workload
 from src.strategies.generated_search_space import _load_candidate_module, _space_from_module
 
 
@@ -54,12 +54,26 @@ def preflight_generated_search_space(
     target_name: str,
 ) -> CascadeCheckResult:
     """Compile and correctness-check direct Level 2 design-space variants."""
+    return preflight_generated_workload_search_space(
+        candidate_path,
+        workload=make_matmul_workload(m, n, k),
+        target_name=target_name,
+    )
+
+
+def preflight_generated_workload_search_space(
+    candidate_path: Path,
+    *,
+    workload: Workload,
+    target_name: str,
+) -> CascadeCheckResult:
+    """Compile and correctness-check direct Level 2 design-space variants."""
     syntax = syntax_check(candidate_path)
     if not syntax.passed:
         return syntax
 
     try:
-        ir_module = create_matmul_ir_module(m, n, k)
+        ir_module = workload.create_ir_module()
         module = _load_candidate_module(candidate_path)
         _, generate_design_space = _space_from_module(
             module=module,
@@ -119,8 +133,8 @@ def preflight_generated_search_space(
     target = _make_target(target_name)
     device = _get_device(target_name)
     rng = np.random.default_rng(0)
-    lhs = rng.uniform(-1.0, 1.0, size=(m, k)).astype("float32")
-    rhs = rng.uniform(-1.0, 1.0, size=(k, n)).astype("float32")
+    inputs_np = workload.make_inputs(rng)
+    reference = workload.reference(inputs_np)
     compile_errors: list[str] = []
     correctness_errors: list[str] = []
 
@@ -132,10 +146,15 @@ def preflight_generated_search_space(
             continue
 
         try:
-            output = _empty((m, n), dtype="float32", device=device)
-            lib["main"](_array(lhs, device), _array(rhs, device), output)
+            input_tensors = tuple(_array(array, device) for array in inputs_np)
+            output = _empty(
+                workload.output_shape,
+                dtype=workload.output_dtype,
+                device=device,
+            )
+            lib["main"](*input_tensors, output)
             device.sync()
-            correctness = check_against_reference(output.numpy(), lhs @ rhs)
+            correctness = check_against_reference(output.numpy(), reference)
         except Exception as error:  # pylint: disable=broad-except
             correctness_errors.append(_concise_error(error))
             continue

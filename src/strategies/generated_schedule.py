@@ -11,6 +11,7 @@ from types import ModuleType
 
 import tvm
 
+from src.kernels.workloads import Workload
 from src.strategies.base import StrategyBuildConfig, StrategyBuildResult
 
 
@@ -27,6 +28,7 @@ class GeneratedScheduleStrategy:
     def build(
         self,
         *,
+        workload: Workload,
         ir_module: tvm.IRModule,
         target: tvm.target.Target,
         target_name: str,
@@ -43,7 +45,7 @@ class GeneratedScheduleStrategy:
         apply_schedule = getattr(module, APPLY_FN_NAME, None)
         if not callable(apply_schedule):
             raise TypeError(
-                f"{candidate_path} must define callable {APPLY_FN_NAME}"
+                f"{candidate_path} must define callable {APPLY_FN_NAME} "
                 "(ir_module, target_name)."
             )
 
@@ -66,6 +68,7 @@ class GeneratedScheduleStrategy:
                 "tuning_time_sec": 0.0,
                 "max_trials_global": 0,
                 "num_trials_per_iter": 0,
+                "workload_name": workload.name,
             },
         )
 

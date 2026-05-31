@@ -6,6 +6,7 @@ from pathlib import Path
 
 import tvm
 
+from src.kernels.workloads import Workload
 from src.strategies.base import StrategyBuildConfig, StrategyBuildResult
 
 
@@ -18,6 +19,7 @@ class SavedScheduledModuleStrategy:
     def build(
         self,
         *,
+        workload: Workload,
         ir_module: tvm.IRModule,
         target: tvm.target.Target,
         target_name: str,
@@ -58,5 +60,6 @@ class SavedScheduledModuleStrategy:
                 "max_trials_global": 0,
                 "num_trials_per_iter": 0,
                 "target_name": target_name,
+                "workload_name": workload.name,
             },
         )

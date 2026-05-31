@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 import tvm
 
+from src.kernels.workloads import Workload
 from src.strategies.base import StrategyBuildConfig, StrategyBuildResult
 
 try:
@@ -40,6 +41,7 @@ class GeneratedSearchSpaceStrategy:
     def build(
         self,
         *,
+        workload: Workload,
         ir_module: tvm.IRModule,
         target: tvm.target.Target,
         target_name: str,
@@ -130,6 +132,7 @@ class GeneratedSearchSpaceStrategy:
                 "post_optimization": config.post_optimization,
                 "target_for_tuning": str(target),
                 "target_name": target_name,
+                "workload_name": workload.name,
                 "used_fallback_schedule": used_fallback_schedule,
             },
         )

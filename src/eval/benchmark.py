@@ -10,8 +10,8 @@ from typing import Any
 import numpy as np
 import tvm
 
-from src.kernels.matmul_tir import create_matmul_ir_module
-from src.strategies.base import MatmulStrategy, StrategyBuildConfig
+from src.kernels.workloads import Workload
+from src.strategies.base import SchedulingStrategy, StrategyBuildConfig
 
 
 @dataclass(frozen=True)
@@ -23,9 +23,9 @@ class RunState:
     strategy_level: str
     scheduled_module: tvm.IRModule
     build_metadata: dict[str, Any]
-    a_tvm: Any
-    b_tvm: Any
-    c_tvm: Any
+    run_args: tuple[Any, ...]
+    input_tensors: tuple[Any, ...]
+    output_tensor: Any
     output_np: np.ndarray
     timestamp: str
 
@@ -37,36 +37,38 @@ class LatencyStats:
     samples_ms: list[float]
 
 
-def build_and_run_matmul(
+def build_and_run_workload(
     *,
-    a_np: np.ndarray,
-    b_np: np.ndarray,
-    M: int,
-    N: int,
-    K: int,
+    workload: Workload,
+    input_arrays: tuple[np.ndarray, ...],
     target_name: str,
-    strategy: MatmulStrategy,
+    strategy: SchedulingStrategy,
     strategy_config: StrategyBuildConfig,
 ) -> RunState:
-    """Build the TensorIR matmul for a target, run once, and return runtime state."""
+    """Build a TensorIR workload for a target, run once, and return runtime state."""
     device = _get_device(target_name)
     target = _make_target(target_name)
 
-    ir_module = create_matmul_ir_module(M, N, K)
+    ir_module = workload.create_ir_module()
     build_result = strategy.build(
+        workload=workload,
         ir_module=ir_module,
         target=target,
         target_name=target_name,
         config=strategy_config,
     )
 
-    a_tvm = _array(a_np, device)
-    b_tvm = _array(b_np, device)
-    c_tvm = _empty((M, N), dtype="float32", device=device)
+    input_tensors = tuple(_array(array, device) for array in input_arrays)
+    output_tvm = _empty(
+        workload.output_shape,
+        dtype=workload.output_dtype,
+        device=device,
+    )
+    run_args = (*input_tensors, output_tvm)
 
-    build_result.lib["main"](a_tvm, b_tvm, c_tvm)
+    build_result.lib["main"](*run_args)
     device.sync()
-    output_np = c_tvm.numpy()
+    output_np = output_tvm.numpy()
 
     return RunState(
         lib=build_result.lib,
@@ -76,29 +78,27 @@ def build_and_run_matmul(
         strategy_level=strategy.level,
         scheduled_module=build_result.scheduled_module,
         build_metadata=build_result.metadata,
-        a_tvm=a_tvm,
-        b_tvm=b_tvm,
-        c_tvm=c_tvm,
+        run_args=run_args,
+        input_tensors=input_tensors,
+        output_tensor=output_tvm,
         output_np=output_np,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
 
-def measure_latency_ms(
+def measure_latency_ms_for_args(
     *,
     lib: tvm.runtime.Module,
     device: tvm.runtime.Device,
-    a_tvm: Any,
-    b_tvm: Any,
-    c_tvm: Any,
+    run_args: tuple[Any, ...],
     num_warmup: int,
     num_trials: int,
     benchmark_invocations: int = 1,
     min_repeat_ms: int | None = None,
 ) -> LatencyStats:
-    """Measure runtime in milliseconds using TVM's built-in time evaluator."""
+    """Measure runtime in milliseconds for an arbitrary TVM entrypoint argument list."""
     for _ in range(num_warmup):
-        lib["main"](a_tvm, b_tvm, c_tvm)
+        lib["main"](*run_args)
     device.sync()
 
     evaluator_kwargs = {
@@ -108,7 +108,7 @@ def measure_latency_ms(
     if min_repeat_ms is not None:
         evaluator_kwargs["min_repeat_ms"] = min_repeat_ms
     evaluator = lib.time_evaluator("main", device, **evaluator_kwargs)
-    timing_result = evaluator(a_tvm, b_tvm, c_tvm)
+    timing_result = evaluator(*run_args)
     samples_ms = [float(sample * 1_000.0) for sample in timing_result.results]
     return LatencyStats(
         mean=float(np.mean(samples_ms)),

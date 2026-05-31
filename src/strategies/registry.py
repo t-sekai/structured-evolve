@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.strategies.base import SchedulingStrategy
 from src.strategies.fixed import FixedScheduleStrategy
 from src.strategies.generated_schedule import GeneratedScheduleStrategy
 from src.strategies.generated_search_space import GeneratedSearchSpaceStrategy
@@ -23,7 +24,7 @@ def available_strategy_names() -> tuple[str, ...]:
     return tuple(_STRATEGIES)
 
 
-def get_strategy(name: str):
+def get_strategy(name: str) -> SchedulingStrategy:
     """Create a strategy by CLI name."""
     try:
         return _STRATEGIES[name]()

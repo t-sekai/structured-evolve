@@ -133,10 +133,8 @@ def _json_filename(result: dict[str, Any]) -> str:
     target = _safe_fragment(str(result["target"]))
     kernel = _safe_fragment(str(result["kernel_name"]))
     strategy = _safe_fragment(str(result.get("strategy", "baseline")))
-    return (
-        f"{kernel}_{strategy}_M{result['M']}_N{result['N']}_K{result['K']}_"
-        f"{target}_{timestamp}.json"
-    )
+    shape = _safe_fragment(str(result.get("shape", "unknown_shape")))
+    return f"{kernel}_{strategy}_{shape}_{target}_{timestamp}.json"
 
 
 def _safe_fragment(value: str) -> str:

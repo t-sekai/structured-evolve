@@ -14,8 +14,8 @@ MAX_SCHEDULE_SUMMARY_LINES = 24
 
 SYSTEM_PROMPT = dedent(
     """
-    You are optimizing Apache TVM TensorIR schedule code for matrix
-    multiplication. Return only a complete Python file. Do not include Markdown
+    You are optimizing Apache TVM TensorIR schedule code for ML kernels.
+    Return only a complete Python file. Do not include Markdown
     fences, commentary, explanations, XML tags, or reasoning. Keep the file
     concise and avoid docstrings.
     """
@@ -32,13 +32,20 @@ def mutation_prompt(
     generation: int,
     candidate_index: int,
     parent_feedback: str = "",
+    workload_context: str | None = None,
+    primary_block_name: str = "C",
 ) -> str:
     """Build a prompt asking the model to mutate one schedule candidate."""
     feedback_block = _feedback_block(parent_feedback)
+    # The fallback is only for legacy matmul callers; normal runs pass the
+    # workload-specific prompt_context from Workload.
+    workload_context = workload_context or (
+        f"matmul shape M={M}, N={N}, K={K}. Preserve numerical correctness for C = A @ B."
+    )
     return dedent(
         f"""
-        Mutate this TVM schedule candidate for matmul shape
-        M={M}, N={N}, K={K}, target={target_name}.
+        Mutate this TVM schedule candidate for {workload_context}
+        Target: {target_name}.
 
         Requirements:
         - Return a complete Python file.
@@ -46,13 +53,12 @@ def mutation_prompt(
         - Define exactly this callable:
           def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
         - The function must return a tvm.IRModule.
-        - Preserve numerical correctness for C = A @ B.
         - Prefer simple, valid TVM schedule transformations.
         - This TVM build exposes tvm.s_tir.Schedule, not tvm.tir.Schedule.
         - Do not write `from tvm import tir` or `import tvm.tir`.
         - Use `sch = tvm.s_tir.Schedule(ir_module)` for schedule mutations.
-        - The matmul compute block is named "C"; use
-          `sch.get_sblock("C", func_name="main")`.
+        - The primary compute block is named "{primary_block_name}"; use
+          `sch.get_sblock("{primary_block_name}", func_name="main")`.
         - Use `sch.split(loop, factors=[None, factor])`, not
           `sch.split(loop, factor=factor)`.
         - Return `sch.mod`, not `sch.mod()`.
@@ -86,13 +92,20 @@ def search_space_mutation_prompt(
     generation: int,
     candidate_index: int,
     parent_feedback: str = "",
+    workload_context: str | None = None,
+    primary_block_name: str = "C",
 ) -> str:
     """Build a prompt asking the model to mutate one search-space candidate."""
     feedback_block = _feedback_block(parent_feedback)
+    # The fallback is only for legacy matmul callers; normal runs pass the
+    # workload-specific prompt_context from Workload.
+    workload_context = workload_context or (
+        f"matmul shape M={M}, N={N}, K={K}. Preserve numerical correctness for C = A @ B."
+    )
     return dedent(
         f"""
-        Mutate this TVM MetaSchedule search-space candidate for matmul shape
-        M={M}, N={N}, K={K}, target={target_name}.
+        Mutate this TVM MetaSchedule search-space candidate for {workload_context}
+        Target: {target_name}.
 
         Requirements:
         - Return a complete Python file.
@@ -100,11 +113,11 @@ def search_space_mutation_prompt(
         - Define exactly this callable:
           def generate_design_space(sch: tvm.s_tir.Schedule):
         - The function must return a list of tvm.s_tir.Schedule objects.
-        - Preserve numerical correctness for C = A @ B.
         - This TVM build exposes tvm.s_tir.Schedule, not tvm.tir.Schedule.
         - Do not write `from tvm import tir` or `import tvm.tir`.
         - Use `sch.copy()` before mutating alternative schedules.
-        - The matmul compute block is named "C"; use get_sblock("C", func_name="main").
+        - The primary compute block is named "{primary_block_name}"; use
+          get_sblock("{primary_block_name}", func_name="main").
         - Prefer 2-4 conservative design-space variants.
         - If a transformation may fail, catch the exception and skip that variant.
         - Do not import project-local modules.

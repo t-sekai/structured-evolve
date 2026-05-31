@@ -1,6 +1,7 @@
 """Evaluation utilities for correctness, timing, result persistence, and suites."""
 
 from src.eval.suite import (
+    Conv2DTaskCase,
     MethodCase,
     MatmulTaskCase,
     SuiteRunConfig,
@@ -10,6 +11,7 @@ from src.eval.suite import (
 
 __all__ = [
     "MethodCase",
+    "Conv2DTaskCase",
     "MatmulTaskCase",
     "SuiteRunConfig",
     "run_benchmark_suite",

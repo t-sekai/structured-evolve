@@ -25,6 +25,44 @@ class MatmulTaskCase:
 
 
 @dataclass(frozen=True)
+class Conv2DTaskCase:
+    """One NCHW Conv2D workload shape on one TVM target."""
+
+    batch: int
+    in_channels: int
+    height: int
+    width: int
+    out_channels: int
+    kernel_h: int
+    kernel_w: int
+    stride: int
+    padding: int
+    target: str
+
+    @property
+    def case_id(self) -> str:
+        return (
+            f"conv2d_B{self.batch}_CI{self.in_channels}_H{self.height}_W{self.width}_"
+            f"CO{self.out_channels}_KH{self.kernel_h}_KW{self.kernel_w}_"
+            f"S{self.stride}_P{self.padding}_{self.target}"
+        )
+
+    @property
+    def workload_params(self) -> dict[str, int]:
+        return {
+            "batch": self.batch,
+            "in_channels": self.in_channels,
+            "height": self.height,
+            "width": self.width,
+            "out_channels": self.out_channels,
+            "kernel_h": self.kernel_h,
+            "kernel_w": self.kernel_w,
+            "stride": self.stride,
+            "padding": self.padding,
+        }
+
+
+@dataclass(frozen=True)
 class MethodCase:
     """One experiment method configuration to run for each task case."""
 
@@ -80,7 +118,7 @@ def default_experiment_id(prefix: str = "suite") -> str:
 
 def run_benchmark_suite(
     *,
-    tasks: Iterable[MatmulTaskCase],
+    tasks: Iterable[MatmulTaskCase | Conv2DTaskCase],
     methods: Iterable[MethodCase],
     config: SuiteRunConfig,
 ) -> list[dict[str, Any]]:
@@ -123,7 +161,7 @@ def run_benchmark_suite(
 
 def run_suite_case(
     *,
-    task: MatmulTaskCase,
+    task: MatmulTaskCase | Conv2DTaskCase,
     method_case: MethodCase,
     config: SuiteRunConfig,
 ) -> dict[str, Any]:
@@ -135,17 +173,23 @@ def run_suite_case(
     )
 
     generated_search_space_path = method_case.generated_search_space_path
+    workload_name = _task_workload_name(task)
     if method_case.name == "level2-candidate" and generated_search_space_path is None:
-        generated_search_space_path = default_level2_search_space_path(task.target)
+        generated_search_space_path = default_level2_search_space_path(
+            task.target,
+            workload_name=workload_name,
+        )
 
     return run_experiment_method(
         method=method_case.name,
         config=MethodRunConfig(
-            M=task.M,
-            N=task.N,
-            K=task.K,
+            M=getattr(task, "M", 256),
+            N=getattr(task, "N", 256),
+            K=getattr(task, "K", 256),
             target_name=task.target,
             output_dir=config.output_dir,
+            workload_name=workload_name,
+            workload_params=_task_workload_params(task),
             num_warmup=config.num_warmup,
             num_trials=config.num_trials,
             benchmark_invocations=config.benchmark_invocations,
@@ -171,7 +215,10 @@ def run_suite_case(
             ),
             level2_seed_candidate_path=(
                 method_case.generated_search_space_path
-                or default_level2_search_space_path(task.target)
+                or default_level2_search_space_path(
+                    task.target,
+                    workload_name=workload_name,
+                )
             ),
             generations=method_case.generations,
             population_size=method_case.population_size,
@@ -201,6 +248,18 @@ def _method_manifest(method: MethodCase) -> dict[str, Any]:
     return data
 
 
+def _task_workload_name(task: MatmulTaskCase | Conv2DTaskCase) -> str:
+    if isinstance(task, Conv2DTaskCase):
+        return "conv2d"
+    return "matmul"
+
+
+def _task_workload_params(task: MatmulTaskCase | Conv2DTaskCase) -> dict[str, int]:
+    if isinstance(task, Conv2DTaskCase):
+        return task.workload_params
+    return {}
+
+
 def _write_summary(path: Path, results: list[dict[str, Any]]) -> None:
     if not results:
         return
@@ -214,6 +273,17 @@ def _write_summary(path: Path, results: list[dict[str, Any]]) -> None:
         "M",
         "N",
         "K",
+        "batch",
+        "in_channels",
+        "height",
+        "width",
+        "out_channels",
+        "kernel_h",
+        "kernel_w",
+        "stride",
+        "padding",
+        "out_height",
+        "out_width",
         "target",
         "compile_passed",
         "correctness_passed",

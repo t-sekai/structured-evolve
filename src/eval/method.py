@@ -1,17 +1,23 @@
-"""Experiment methods built on the shared matmul evaluation pipeline."""
+"""Experiment methods built on the shared workload evaluation pipeline."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from src.eval.experiment import run_matmul_experiment
+from src.eval.experiment import run_workload_experiment
 from src.evolution.bedrock_client import BedrockClient
 from src.evolution.loop import run_schedule_evolution
 from src.evolution.space_loop import run_search_space_evolution
+from src.kernels.workloads import (
+    CONV2D_WORKLOAD,
+    MATMUL_WORKLOAD,
+    Workload,
+    make_workload,
+)
 from src.strategies import StrategyBuildConfig, get_strategy
 
 
@@ -24,7 +30,7 @@ METHOD_NAMES = (
     "level2-search",
 )
 
-METHOD_TO_STRATEGY = {
+STRATEGY_METHODS = {
     "fixed": "fixed",
     "metaschedule": "metaschedule",
     "level1-candidate": "generated-schedule",
@@ -36,16 +42,33 @@ LEVEL2_FINAL_EVALUATION_POLICIES = (
     "exact-winner",
 )
 
+DEFAULT_LEVEL2_SEARCH_SPACE_PATHS = {
+    MATMUL_WORKLOAD: {
+        "llvm": Path("generated/search_spaces/basic_matmul.py"),
+        "cuda": Path("generated/search_spaces/cuda_matmul.py"),
+    },
+    CONV2D_WORKLOAD: {
+        "llvm": Path("generated/search_spaces/basic_conv2d.py"),
+        "cuda": Path("generated/search_spaces/cuda_conv2d.py"),
+    },
+}
+
 
 @dataclass(frozen=True)
 class MethodRunConfig:
-    """Configuration for one method on one matmul task."""
+    """Configuration for one method on one workload task.
+
+    M/N/K remain compatibility fields for matmul runs and legacy evolution prompts.
+    Non-matmul workloads should pass their real shape through workload_params.
+    """
 
     M: int
     N: int
     K: int
     target_name: str
     output_dir: Path
+    workload_name: str = "matmul"
+    workload_params: dict[str, Any] = field(default_factory=dict)
     num_warmup: int = 3
     num_trials: int = 10
     benchmark_invocations: int = 1
@@ -100,8 +123,8 @@ def run_experiment_method(
     config: MethodRunConfig,
 ) -> dict[str, Any]:
     """Run one first-class experiment method and return its final result row."""
-    if method in METHOD_TO_STRATEGY:
-        return _run_existing_candidate(method=method, config=config)
+    if method in STRATEGY_METHODS:
+        return _run_strategy_method(method=method, config=config)
     if method == "level1-search":
         return _run_level1_search(config=config)
     if method == "level2-search":
@@ -109,30 +132,25 @@ def run_experiment_method(
     raise ValueError(f"Unknown method '{method}'. Available methods: {', '.join(METHOD_NAMES)}")
 
 
-def _run_existing_candidate(*, method: str, config: MethodRunConfig) -> dict[str, Any]:
-    strategy = get_strategy(METHOD_TO_STRATEGY[method])
+def _run_strategy_method(*, method: str, config: MethodRunConfig) -> dict[str, Any]:
+    strategy = get_strategy(STRATEGY_METHODS[method])
     generated_search_space_path = config.generated_search_space_path
     if method == "level2-candidate" and generated_search_space_path is None:
-        generated_search_space_path = default_level2_search_space_path(config.target_name)
-    strategy_config = StrategyBuildConfig(
+        generated_search_space_path = default_level2_search_space_path(
+            config.target_name,
+            workload_name=config.workload_name,
+        )
+    workload = _workload(config)
+    strategy_config = _strategy_build_config(
+        config=config,
+        workload=workload,
         work_dir=config.tuning_work_dir,
-        max_trials_global=config.max_trials_global,
-        max_trials_per_task=config.max_trials_per_task,
-        num_trials_per_iter=config.num_trials_per_iter,
-        seed=config.seed,
-        num_tuning_cores=config.num_tuning_cores,
-        cost_model=config.cost_model,
-        task_scheduler=config.task_scheduler,
-        post_optimization=config.post_optimization,
-        generated_schedule_path=config.generated_schedule_path,
         generated_search_space_path=generated_search_space_path,
     )
-    return run_matmul_experiment(
+    return run_workload_experiment(
+        workload=workload,
         strategy=strategy,
         strategy_config=strategy_config,
-        M=config.M,
-        N=config.N,
-        K=config.K,
         target_name=config.target_name,
         num_warmup=config.num_warmup,
         num_trials=config.num_trials,
@@ -148,9 +166,33 @@ def _run_existing_candidate(*, method: str, config: MethodRunConfig) -> dict[str
     )
 
 
+def _strategy_build_config(
+    *,
+    config: MethodRunConfig,
+    workload: Workload,
+    work_dir: Path | None,
+    generated_search_space_path: Path | None,
+) -> StrategyBuildConfig:
+    """Translate method-level knobs into the strategy-level build config."""
+    return StrategyBuildConfig(
+        work_dir=work_dir,
+        max_trials_global=config.max_trials_global,
+        max_trials_per_task=config.max_trials_per_task,
+        num_trials_per_iter=config.num_trials_per_iter,
+        seed=config.seed,
+        num_tuning_cores=config.num_tuning_cores,
+        cost_model=config.cost_model,
+        task_scheduler=config.task_scheduler,
+        post_optimization=config.post_optimization,
+        generated_schedule_path=config.generated_schedule_path,
+        generated_search_space_path=generated_search_space_path,
+        workload_name=workload.name,
+    )
+
+
 def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
     run_dir = _evolution_run_dir(config, "level1-search")
-    search_config = _search_config(config)
+    workload = _workload(config)
 
     start = perf_counter()
     history = run_schedule_evolution(
@@ -164,8 +206,9 @@ def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
         M=config.M,
         N=config.N,
         K=config.K,
-        num_warmup=search_config.search_num_warmup or config.num_warmup,
-        num_trials=search_config.search_num_trials or config.num_trials,
+        workload=workload,
+        num_warmup=_search_value(config.search_num_warmup, config.num_warmup),
+        num_trials=_search_value(config.search_num_trials, config.num_trials),
         benchmark_invocations=_search_benchmark_invocations(config),
         min_repeat_ms=_search_min_repeat_ms(config),
         bedrock_client=config.bedrock_client,
@@ -197,13 +240,16 @@ def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
 def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
     _validate_level2_final_evaluation_policy(config.level2_final_evaluation_policy)
     run_dir = _evolution_run_dir(config, "level2-search")
-    search_config = _search_config(config)
+    workload = _workload(config)
 
     start = perf_counter()
     history = run_search_space_evolution(
         seed_candidate_path=(
             config.level2_seed_candidate_path
-            or default_level2_search_space_path(config.target_name)
+            or default_level2_search_space_path(
+                config.target_name,
+                workload_name=config.workload_name,
+            )
         ),
         run_dir=run_dir,
         output_dir=config.output_dir,
@@ -214,13 +260,17 @@ def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
         M=config.M,
         N=config.N,
         K=config.K,
-        num_warmup=search_config.search_num_warmup or config.num_warmup,
-        num_trials=search_config.search_num_trials or config.num_trials,
+        workload=workload,
+        num_warmup=_search_value(config.search_num_warmup, config.num_warmup),
+        num_trials=_search_value(config.search_num_trials, config.num_trials),
         benchmark_invocations=_search_benchmark_invocations(config),
         min_repeat_ms=_search_min_repeat_ms(config),
-        max_trials_global=search_config.search_max_trials_global or config.max_trials_global,
+        max_trials_global=_search_value(
+            config.search_max_trials_global,
+            config.max_trials_global,
+        ),
         num_trials_per_iter=(
-            search_config.search_num_trials_per_iter or config.num_trials_per_iter
+            _search_value(config.search_num_trials_per_iter, config.num_trials_per_iter)
         ),
         cost_model=config.cost_model,
         task_scheduler=config.task_scheduler,
@@ -262,16 +312,11 @@ def _run_evolved_best(
     best: dict[str, Any],
     evolution_time_sec: float,
 ) -> dict[str, Any]:
-    strategy_config = StrategyBuildConfig(
-        max_trials_global=config.max_trials_global,
-        max_trials_per_task=config.max_trials_per_task,
-        num_trials_per_iter=config.num_trials_per_iter,
-        seed=config.seed,
-        num_tuning_cores=config.num_tuning_cores,
-        cost_model=config.cost_model,
-        task_scheduler=config.task_scheduler,
-        post_optimization=config.post_optimization,
-        generated_schedule_path=config.generated_schedule_path,
+    workload = _workload(config)
+    strategy_config = _strategy_build_config(
+        config=config,
+        workload=workload,
+        work_dir=None,
         generated_search_space_path=config.generated_search_space_path,
     )
     selection_role = "best_of_search"
@@ -285,12 +330,10 @@ def _run_evolved_best(
             )
         )
     strategy = get_strategy(strategy_name)
-    result = run_matmul_experiment(
+    result = run_workload_experiment(
+        workload=workload,
         strategy=strategy,
         strategy_config=strategy_config,
-        M=config.M,
-        N=config.N,
-        K=config.K,
         target_name=config.target_name,
         num_warmup=config.num_warmup,
         num_trials=config.num_trials,
@@ -363,6 +406,7 @@ def _level2_final_evaluation(
             saved_scheduled_module_json_path=_optional_path(
                 best_result.get("scheduled_module_json_path")
             ),
+            workload_name=config.workload_name,
         ),
         "best_of_search_exact_winner",
         metadata
@@ -387,13 +431,30 @@ def _optional_path(value: Any) -> Path | None:
     return Path(str(value))
 
 
-def default_level2_search_space_path(target_name: str) -> Path:
+def default_level2_search_space_path(
+    target_name: str,
+    *,
+    workload_name: str = "matmul",
+) -> Path:
     """Return the built-in Level-2 seed for one target."""
-    if target_name == "llvm":
-        return Path("generated/search_spaces/basic_matmul.py")
-    if target_name == "cuda":
-        return Path("generated/search_spaces/cuda_matmul.py")
-    raise ValueError(f"Unsupported target: {target_name}")
+    try:
+        return DEFAULT_LEVEL2_SEARCH_SPACE_PATHS[workload_name][target_name]
+    except KeyError as err:
+        workloads = ", ".join(DEFAULT_LEVEL2_SEARCH_SPACE_PATHS)
+        raise ValueError(
+            f"Unsupported Level-2 seed for workload={workload_name!r}, "
+            f"target={target_name!r}. Available workloads: {workloads}"
+        ) from err
+
+
+def _workload(config: MethodRunConfig) -> Workload:
+    return make_workload(
+        workload_name=config.workload_name,
+        M=config.M,
+        N=config.N,
+        K=config.K,
+        workload_params=config.workload_params,
+    )
 
 
 def _base_metadata(
@@ -460,8 +521,10 @@ def _best_or_raise(history: list[dict[str, Any]]) -> dict[str, Any]:
     return history[0]
 
 
-def _search_config(config: MethodRunConfig) -> MethodRunConfig:
-    return config
+def _search_value(override: Any | None, fallback: Any) -> Any:
+    if override is not None:
+        return override
+    return fallback
 
 
 def _search_benchmark_invocations(config: MethodRunConfig) -> int:

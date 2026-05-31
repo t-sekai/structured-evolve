@@ -7,6 +7,7 @@ from time import perf_counter
 
 import tvm
 
+from src.kernels.workloads import Workload
 from src.strategies.base import StrategyBuildConfig, StrategyBuildResult
 
 try:
@@ -26,6 +27,7 @@ class MetaScheduleStrategy:
     def build(
         self,
         *,
+        workload: Workload,
         ir_module: tvm.IRModule,
         target: tvm.target.Target,
         target_name: str,
@@ -95,5 +97,6 @@ class MetaScheduleStrategy:
                 "post_optimization": config.post_optimization,
                 "target_for_tuning": str(target),
                 "target_name": target_name,
+                "workload_name": workload.name,
             },
         )

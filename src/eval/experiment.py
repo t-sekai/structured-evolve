@@ -1,4 +1,4 @@
-"""Shared experiment pipeline for all matmul scheduling strategies."""
+"""Shared experiment pipeline for workload scheduling strategies."""
 
 from __future__ import annotations
 
@@ -9,20 +9,18 @@ from typing import Any, Callable, Mapping
 
 import numpy as np
 
-from src.eval.benchmark import build_and_run_matmul, measure_latency_ms
+from src.eval.benchmark import build_and_run_workload, measure_latency_ms_for_args
 from src.eval.correctness import check_against_reference
 from src.eval.results_io import append_csv_result, save_json_result
-from src.kernels.matmul_tir import KERNEL_NAME
-from src.strategies.base import MatmulStrategy, StrategyBuildConfig
+from src.kernels.workloads import Workload
+from src.strategies.base import SchedulingStrategy, StrategyBuildConfig
 
 
-def run_matmul_experiment(
+def run_workload_experiment(
     *,
-    strategy: MatmulStrategy,
+    workload: Workload,
+    strategy: SchedulingStrategy,
     strategy_config: StrategyBuildConfig,
-    M: int,
-    N: int,
-    K: int,
     target_name: str,
     num_warmup: int,
     num_trials: int,
@@ -33,31 +31,27 @@ def run_matmul_experiment(
     extra_metadata: Mapping[str, Any] | None = None,
     postprocess_result: Callable[[dict[str, Any]], Mapping[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
-    """Run one strategy through the common compile, correctness, timing, and save path."""
+    """Run one workload through compile, correctness, timing, and persistence."""
     timestamp = datetime.now(timezone.utc).isoformat()
     strategy_config = _with_default_work_dir(
         strategy=strategy,
         config=strategy_config,
         output_dir=output_dir,
-        M=M,
-        N=N,
-        K=K,
+        shape_id=workload.shape_id,
         target_name=target_name,
+        workload_name=workload.name,
         timestamp=timestamp,
     )
+    strategy_config = replace(strategy_config, workload_name=workload.name)
 
     try:
         rng = np.random.default_rng(seed=0)
-        a_np = rng.standard_normal((M, K), dtype=np.float32)
-        b_np = rng.standard_normal((K, N), dtype=np.float32)
-        reference_np = a_np @ b_np
+        inputs_np = workload.make_inputs(rng)
+        reference_np = workload.reference(inputs_np)
 
-        run_state = build_and_run_matmul(
-            a_np=a_np,
-            b_np=b_np,
-            M=M,
-            N=N,
-            K=K,
+        run_state = build_and_run_workload(
+            workload=workload,
+            input_arrays=inputs_np,
             target_name=target_name,
             strategy=strategy,
             strategy_config=strategy_config,
@@ -68,12 +62,10 @@ def run_matmul_experiment(
             output_for_check = np.zeros_like(run_state.output_np)
 
         correctness = check_against_reference(output_for_check, reference_np)
-        latency = measure_latency_ms(
+        latency = measure_latency_ms_for_args(
             lib=run_state.lib,
             device=run_state.device,
-            a_tvm=run_state.a_tvm,
-            b_tvm=run_state.b_tvm,
-            c_tvm=run_state.c_tvm,
+            run_args=run_state.run_args,
             num_warmup=num_warmup,
             num_trials=num_trials,
             benchmark_invocations=benchmark_invocations,
@@ -81,10 +73,8 @@ def run_matmul_experiment(
         )
 
         result = _base_result(
+            workload=workload,
             strategy=strategy,
-            M=M,
-            N=N,
-            K=K,
             target_name=target_name,
             device=run_state.device_description,
             timestamp=run_state.timestamp,
@@ -111,10 +101,8 @@ def run_matmul_experiment(
 
     except Exception as err:  # pylint: disable=broad-except
         result = _base_result(
+            workload=workload,
             strategy=strategy,
-            M=M,
-            N=N,
-            K=K,
             target_name=target_name,
             device="",
             timestamp=timestamp,
@@ -146,12 +134,10 @@ def run_matmul_experiment(
     return _persist_result(result, output_dir)
 
 
-def record_rejected_matmul_experiment(
+def record_rejected_workload_experiment(
     *,
-    strategy: MatmulStrategy,
-    M: int,
-    N: int,
-    K: int,
+    workload: Workload,
+    strategy: SchedulingStrategy,
     target_name: str,
     num_warmup: int,
     num_trials: int,
@@ -165,10 +151,8 @@ def record_rejected_matmul_experiment(
 ) -> dict[str, Any]:
     """Persist a candidate rejected before its full benchmark and tuning path."""
     result = _base_result(
+        workload=workload,
         strategy=strategy,
-        M=M,
-        N=N,
-        K=K,
         target_name=target_name,
         device="",
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -204,10 +188,8 @@ def record_rejected_matmul_experiment(
 
 def _base_result(
     *,
-    strategy: MatmulStrategy,
-    M: int,
-    N: int,
-    K: int,
+    workload: Workload,
+    strategy: SchedulingStrategy,
     target_name: str,
     device: str,
     timestamp: str,
@@ -219,16 +201,16 @@ def _base_result(
     extra_metadata: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     result = {
-        "task_name": "matmul",
-        "kernel_name": KERNEL_NAME,
-        "workload_name": KERNEL_NAME,
+        "task_name": workload.name,
+        "kernel_name": workload.kernel_name,
+        "workload_name": workload.name,
         "strategy": strategy.name,
         "level": strategy.level,
-        "M": M,
-        "N": N,
-        "K": K,
-        "shape": f"M{M}_N{N}_K{K}",
-        "problem_size": M * N * K,
+        "M": None,
+        "N": None,
+        "K": None,
+        "shape": workload.shape_id,
+        "problem_size": workload.problem_size,
         "target": target_name,
         "device": device,
         "num_warmup": num_warmup,
@@ -238,6 +220,7 @@ def _base_result(
         "timestamp": timestamp,
         "bad_baseline": bad_baseline,
     }
+    result.update(_jsonable_metadata(workload.metadata))
     if extra_metadata:
         result.update(_jsonable_metadata(extra_metadata))
     return result
@@ -253,12 +236,11 @@ def _persist_result(result: dict[str, Any], output_dir: Path) -> dict[str, Any]:
 
 def _with_default_work_dir(
     *,
-    strategy: MatmulStrategy,
+    strategy: SchedulingStrategy,
     config: StrategyBuildConfig,
     output_dir: Path,
-    M: int,
-    N: int,
-    K: int,
+    workload_name: str,
+    shape_id: str,
     target_name: str,
     timestamp: str,
 ) -> StrategyBuildConfig:
@@ -270,7 +252,8 @@ def _with_default_work_dir(
         output_dir
         / "work_dirs"
         / strategy.name
-        / f"M{M}_N{N}_K{K}_{target_name}_{safe_timestamp}"
+        / workload_name
+        / f"{shape_id}_{target_name}_{safe_timestamp}"
     )
     return replace(config, work_dir=work_dir)
 

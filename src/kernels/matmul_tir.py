@@ -32,11 +32,16 @@ def create_matmul_ir_module(M: int, N: int, K: int) -> tvm.IRModule:
 
 def apply_schedule_for_target(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
     """Apply a tiny target-specific schedule so the scaffold runs on CPU and CUDA."""
+    if target_name == "llvm":
+        return _apply_llvm_schedule(ir_module)
     if target_name == "cuda":
         return _apply_cuda_schedule(ir_module)
-    if target_name == "llvm":
-        return ir_module
     raise ValueError(f"Unsupported target: {target_name}")
+
+
+def _apply_llvm_schedule(ir_module: tvm.IRModule) -> tvm.IRModule:
+    """Keep the CPU baseline as the canonical TE lowering."""
+    return ir_module
 
 
 def _apply_cuda_schedule(ir_module: tvm.IRModule) -> tvm.IRModule:

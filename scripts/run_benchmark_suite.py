@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a benchmark matrix across matmul tasks and experiment methods."""
+"""Run a benchmark matrix across workload tasks and experiment methods."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.eval.suite import (
+    Conv2DTaskCase,
     MethodCase,
     MatmulTaskCase,
     SuiteRunConfig,
@@ -30,6 +31,8 @@ METHOD_NAMES = (
     "level2-search",
 )
 
+WORKLOAD_NAMES = ("matmul", "conv2d")
+
 LEVEL2_FINAL_EVALUATION_POLICIES = (
     "fresh-retune",
     "exact-winner",
@@ -45,6 +48,21 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=None,
         help="Matmul shape as M,N,K or MxNxK. Can be passed multiple times.",
+    )
+    parser.add_argument(
+        "--conv2d-shape",
+        action="append",
+        default=None,
+        help=(
+            "Conv2D shape as B,CI,H,W,CO,KH,KW,stride,pad. "
+            "Can be passed multiple times."
+        ),
+    )
+    parser.add_argument(
+        "--workload",
+        choices=WORKLOAD_NAMES,
+        default="matmul",
+        help="Workload family for --shape/--conv2d-shape.",
     )
     parser.add_argument(
         "--target",
@@ -219,14 +237,22 @@ def main() -> int:
         return 1
 
 
-def _task_cases(args: argparse.Namespace) -> list[MatmulTaskCase]:
-    shape_values = args.shape or ["128,128,128"]
+def _task_cases(args: argparse.Namespace) -> list[MatmulTaskCase | Conv2DTaskCase]:
     targets = args.target or ["llvm"]
-    tasks: list[MatmulTaskCase] = []
+    tasks: list[MatmulTaskCase | Conv2DTaskCase] = []
+    if args.workload == "matmul":
+        shape_values = args.shape or ["128,128,128"]
+        for shape_value in shape_values:
+            M, N, K = _parse_shape(shape_value)
+            for target in targets:
+                tasks.append(MatmulTaskCase(M=M, N=N, K=K, target=target))
+        return tasks
+
+    shape_values = args.conv2d_shape or ["1,3,16,16,8,3,3,1,1"]
     for shape_value in shape_values:
-        M, N, K = _parse_shape(shape_value)
+        shape = _parse_conv2d_shape(shape_value)
         for target in targets:
-            tasks.append(MatmulTaskCase(M=M, N=N, K=K, target=target))
+            tasks.append(Conv2DTaskCase(*shape, target=target))
     return tasks
 
 
@@ -297,6 +323,36 @@ def _parse_shape(value: str) -> tuple[int, int, int]:
         if dimension <= 0:
             raise ValueError(f"{name} must be positive, got {dimension}")
     return M, N, K
+
+
+def _parse_conv2d_shape(value: str) -> tuple[int, int, int, int, int, int, int, int, int]:
+    normalized = value.lower().replace("x", ",")
+    pieces = [piece.strip() for piece in normalized.split(",") if piece.strip()]
+    if len(pieces) != 9:
+        raise ValueError(
+            "Conv2D shape must be B,CI,H,W,CO,KH,KW,stride,pad, "
+            f"got {value!r}"
+        )
+    try:
+        shape = tuple(int(piece) for piece in pieces)
+    except ValueError as err:
+        raise ValueError(f"Conv2D shape must contain integers, got {value!r}") from err
+    names = (
+        "batch",
+        "in_channels",
+        "height",
+        "width",
+        "out_channels",
+        "kernel_h",
+        "kernel_w",
+        "stride",
+    )
+    for name, dimension in zip(names, shape[:8], strict=True):
+        if dimension <= 0:
+            raise ValueError(f"{name} must be positive, got {dimension}")
+    if shape[8] < 0:
+        raise ValueError(f"padding must be non-negative, got {shape[8]}")
+    return shape
 
 
 def _parse_tuning_cores(value: str) -> int | str:
