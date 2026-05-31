@@ -43,6 +43,8 @@ CSV_FIELDS = [
     "latency_ms_std",
     "num_warmup",
     "num_trials",
+    "benchmark_invocations",
+    "min_repeat_ms",
     "tuning_time_sec",
     "max_trials_global",
     "max_trials_per_task",

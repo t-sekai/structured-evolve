@@ -43,6 +43,8 @@ class MethodRunConfig:
     output_dir: Path
     num_warmup: int = 3
     num_trials: int = 10
+    benchmark_invocations: int = 1
+    min_repeat_ms: int | None = None
     experiment_id: str | None = None
     suite_name: str | None = None
     run_id: str | None = None
@@ -69,6 +71,8 @@ class MethodRunConfig:
     survivors: int = 1
     search_num_warmup: int | None = None
     search_num_trials: int | None = None
+    search_benchmark_invocations: int | None = None
+    search_min_repeat_ms: int | None = None
     search_max_trials_global: int | None = None
     search_num_trials_per_iter: int | None = None
     dry_run: bool = True
@@ -122,6 +126,8 @@ def _run_existing_candidate(*, method: str, config: MethodRunConfig) -> dict[str
         target_name=config.target_name,
         num_warmup=config.num_warmup,
         num_trials=config.num_trials,
+        benchmark_invocations=config.benchmark_invocations,
+        min_repeat_ms=config.min_repeat_ms,
         output_dir=config.output_dir,
         bad_baseline=config.bad_baseline,
         extra_metadata=_base_metadata(
@@ -150,6 +156,8 @@ def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
         K=config.K,
         num_warmup=search_config.search_num_warmup or config.num_warmup,
         num_trials=search_config.search_num_trials or config.num_trials,
+        benchmark_invocations=_search_benchmark_invocations(config),
+        min_repeat_ms=_search_min_repeat_ms(config),
         bedrock_client=config.bedrock_client,
         dry_run=config.dry_run,
         experiment_id=config.experiment_id,
@@ -193,6 +201,8 @@ def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
         K=config.K,
         num_warmup=search_config.search_num_warmup or config.num_warmup,
         num_trials=search_config.search_num_trials or config.num_trials,
+        benchmark_invocations=_search_benchmark_invocations(config),
+        min_repeat_ms=_search_min_repeat_ms(config),
         max_trials_global=search_config.search_max_trials_global or config.max_trials_global,
         num_trials_per_iter=(
             search_config.search_num_trials_per_iter or config.num_trials_per_iter
@@ -255,6 +265,8 @@ def _run_evolved_best(
         target_name=config.target_name,
         num_warmup=config.num_warmup,
         num_trials=config.num_trials,
+        benchmark_invocations=config.benchmark_invocations,
+        min_repeat_ms=config.min_repeat_ms,
         output_dir=config.output_dir,
         bad_baseline=config.bad_baseline,
         extra_metadata=(
@@ -347,3 +359,15 @@ def _best_or_raise(history: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _search_config(config: MethodRunConfig) -> MethodRunConfig:
     return config
+
+
+def _search_benchmark_invocations(config: MethodRunConfig) -> int:
+    if config.search_benchmark_invocations is not None:
+        return config.search_benchmark_invocations
+    return config.benchmark_invocations
+
+
+def _search_min_repeat_ms(config: MethodRunConfig) -> int | None:
+    if config.search_min_repeat_ms is not None:
+        return config.search_min_repeat_ms
+    return config.min_repeat_ms

@@ -27,6 +27,8 @@ def run_matmul_experiment(
     num_warmup: int,
     num_trials: int,
     output_dir: Path,
+    benchmark_invocations: int = 1,
+    min_repeat_ms: int | None = None,
     bad_baseline: bool = False,
     extra_metadata: Mapping[str, Any] | None = None,
     postprocess_result: Callable[[dict[str, Any]], Mapping[str, Any] | None] | None = None,
@@ -74,6 +76,8 @@ def run_matmul_experiment(
             c_tvm=run_state.c_tvm,
             num_warmup=num_warmup,
             num_trials=num_trials,
+            benchmark_invocations=benchmark_invocations,
+            min_repeat_ms=min_repeat_ms,
         )
 
         result = _base_result(
@@ -86,6 +90,8 @@ def run_matmul_experiment(
             timestamp=run_state.timestamp,
             num_warmup=num_warmup,
             num_trials=num_trials,
+            benchmark_invocations=benchmark_invocations,
+            min_repeat_ms=min_repeat_ms,
             bad_baseline=bad_baseline,
             extra_metadata=extra_metadata,
         )
@@ -114,6 +120,8 @@ def run_matmul_experiment(
             timestamp=timestamp,
             num_warmup=num_warmup,
             num_trials=num_trials,
+            benchmark_invocations=benchmark_invocations,
+            min_repeat_ms=min_repeat_ms,
             bad_baseline=bad_baseline,
             extra_metadata=extra_metadata,
         )
@@ -153,6 +161,8 @@ def _base_result(
     timestamp: str,
     num_warmup: int,
     num_trials: int,
+    benchmark_invocations: int,
+    min_repeat_ms: int | None,
     bad_baseline: bool,
     extra_metadata: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
@@ -171,6 +181,8 @@ def _base_result(
         "device": device,
         "num_warmup": num_warmup,
         "num_trials": num_trials,
+        "benchmark_invocations": benchmark_invocations,
+        "min_repeat_ms": min_repeat_ms,
         "timestamp": timestamp,
         "bad_baseline": bad_baseline,
     }

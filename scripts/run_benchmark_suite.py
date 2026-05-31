@@ -60,6 +60,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-warmup", type=int, default=3)
     parser.add_argument("--num-trials", type=int, default=10)
     parser.add_argument(
+        "--benchmark-invocations",
+        type=int,
+        default=1,
+        help="Kernel invocations per timing sample before any TVM minimum-duration adjustment.",
+    )
+    parser.add_argument(
+        "--min-repeat-ms",
+        type=int,
+        default=None,
+        help="Optional minimum duration in milliseconds for each timing sample.",
+    )
+    parser.add_argument(
         "--generated-schedule-path",
         type=Path,
         default=Path("generated/schedules/identity.py"),
@@ -89,6 +101,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--survivors", type=int, default=1)
     parser.add_argument("--search-num-warmup", type=int, default=None)
     parser.add_argument("--search-num-trials", type=int, default=None)
+    parser.add_argument("--search-benchmark-invocations", type=int, default=None)
+    parser.add_argument("--search-min-repeat-ms", type=int, default=None)
     parser.add_argument("--search-max-trials-global", type=int, default=None)
     parser.add_argument("--search-num-trials-per-iter", type=int, default=None)
     parser.add_argument("--use-bedrock", action="store_true")
@@ -104,6 +118,7 @@ def validate_args(args: argparse.Namespace) -> None:
     for name in (
         "num_warmup",
         "num_trials",
+        "benchmark_invocations",
         "max_trials_global",
         "num_trials_per_iter",
         "generations",
@@ -120,12 +135,17 @@ def validate_args(args: argparse.Namespace) -> None:
         "max_trials_per_task",
         "search_num_warmup",
         "search_num_trials",
+        "search_benchmark_invocations",
         "search_max_trials_global",
         "search_num_trials_per_iter",
     ):
         value = getattr(args, name)
         if value is not None and value <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive, got {value}")
+    for name in ("min_repeat_ms", "search_min_repeat_ms"):
+        value = getattr(args, name)
+        if value is not None and value < 0:
+            raise ValueError(f"--{name.replace('_', '-')} must be non-negative, got {value}")
     if args.survivors > args.population_size:
         raise ValueError("--survivors cannot exceed --population-size")
     _parse_tuning_cores(args.num_tuning_cores)
@@ -147,6 +167,8 @@ def main() -> int:
                 suite_name=args.suite_name,
                 num_warmup=args.num_warmup,
                 num_trials=args.num_trials,
+                benchmark_invocations=args.benchmark_invocations,
+                min_repeat_ms=args.min_repeat_ms,
                 bad_baseline=args.bad_baseline,
                 bedrock_client=_bedrock_client(args) if args.use_bedrock else None,
             ),
@@ -205,6 +227,8 @@ def _method_cases(args: argparse.Namespace) -> list[MethodCase]:
             survivors=args.survivors,
             search_num_warmup=args.search_num_warmup,
             search_num_trials=args.search_num_trials,
+            search_benchmark_invocations=args.search_benchmark_invocations,
+            search_min_repeat_ms=args.search_min_repeat_ms,
             search_max_trials_global=args.search_max_trials_global,
             search_num_trials_per_iter=args.search_num_trials_per_iter,
             dry_run=not args.use_bedrock,
