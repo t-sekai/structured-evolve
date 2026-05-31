@@ -28,6 +28,7 @@ CSV_FIELDS = [
     "target",
     "device",
     "generation",
+    "generation_rank",
     "candidate_id",
     "parent_id",
     "selection_role",

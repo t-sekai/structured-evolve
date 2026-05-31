@@ -12,7 +12,12 @@ from src.eval.experiment import run_matmul_experiment
 from src.evolution.bedrock_client import BedrockClient
 from src.evolution.candidate import Candidate
 from src.evolution.fitness import FitnessResult, score_result
-from src.evolution.prompts import SYSTEM_PROMPT, mutation_prompt, strip_code_fences
+from src.evolution.prompts import (
+    SYSTEM_PROMPT,
+    evaluator_feedback,
+    mutation_prompt,
+    strip_code_fences,
+)
 from src.strategies import StrategyBuildConfig, get_strategy
 
 
@@ -119,13 +124,15 @@ def run_schedule_evolution(
             for candidate in active
         ]
         evaluated.sort(key=lambda row: row["fitness"]["score"], reverse=True)
+        for rank, row in enumerate(evaluated, start=1):
+            row["generation_rank"] = rank
         history.extend(evaluated)
         _write_json(generation_dir / "ranking.json", evaluated)
 
         if generation == generations:
             break
 
-        parents = [row["candidate"] for row in evaluated[:survivors]]
+        parents = evaluated[:survivors]
         active = _make_next_generation(
             parents=parents,
             generation=generation + 1,
@@ -216,7 +223,8 @@ def _make_next_generation(
     generation_dir.mkdir(parents=True, exist_ok=True)
     next_candidates: list[Candidate] = []
     for index in range(population_size):
-        parent = parents[index % len(parents)]
+        parent_row = parents[index % len(parents)]
+        parent = parent_row["candidate"]
         parent_path = Path(parent["path"])
         parent_code = parent_path.read_text(encoding="utf-8")
         candidate_id = f"g{generation:03d}_c{index:03d}"
@@ -232,6 +240,7 @@ def _make_next_generation(
             K=K,
             generation=generation,
             candidate_index=index,
+            parent_feedback=evaluator_feedback(parent_row),
         )
         prompt_path.write_text(prompt + "\n", encoding="utf-8")
 

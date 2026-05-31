@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from textwrap import dedent
+from pathlib import Path
+from textwrap import dedent, indent
+from typing import Any, Mapping
+
+
+MAX_ERROR_CHARS = 240
+MAX_SCHEDULE_SUMMARY_CHARS = 1200
+MAX_SCHEDULE_SUMMARY_LINES = 24
 
 
 SYSTEM_PROMPT = dedent(
@@ -24,8 +31,10 @@ def mutation_prompt(
     K: int,
     generation: int,
     candidate_index: int,
+    parent_feedback: str = "",
 ) -> str:
     """Build a prompt asking the model to mutate one schedule candidate."""
+    feedback_block = _feedback_block(parent_feedback)
     return dedent(
         f"""
         Mutate this TVM schedule candidate for matmul shape
@@ -59,6 +68,8 @@ def mutation_prompt(
 
         This is generation {generation}, candidate {candidate_index}.
 
+        {feedback_block}
+
         Parent candidate:
         {parent_code}
         """
@@ -74,8 +85,10 @@ def search_space_mutation_prompt(
     K: int,
     generation: int,
     candidate_index: int,
+    parent_feedback: str = "",
 ) -> str:
     """Build a prompt asking the model to mutate one search-space candidate."""
+    feedback_block = _feedback_block(parent_feedback)
     return dedent(
         f"""
         Mutate this TVM MetaSchedule search-space candidate for matmul shape
@@ -99,10 +112,112 @@ def search_space_mutation_prompt(
 
         This is generation {generation}, candidate {candidate_index}.
 
+        {feedback_block}
+
         Parent candidate:
         {parent_code}
         """
     ).strip()
+
+
+def evaluator_feedback(
+    parent_row: Mapping[str, Any],
+    *,
+    include_level2_artifacts: bool = False,
+) -> str:
+    """Return a compact prompt-facing summary for one evaluated parent."""
+    candidate = parent_row.get("candidate", {})
+    result = parent_row.get("result", {})
+    fitness = parent_row.get("fitness", {})
+    lines = [
+        f"- candidate_id: {_display(candidate.get('candidate_id'))}",
+        f"- generation_rank: {_display(parent_row.get('generation_rank'))}",
+        f"- compile_passed: {_display(result.get('compile_passed'))}",
+        f"- correctness_passed: {_display(result.get('correctness_passed'))}",
+        f"- latency_ms_mean: {_display(result.get('latency_ms_mean'))}",
+        f"- latency_ms_std: {_display(result.get('latency_ms_std'))}",
+        f"- fitness_score: {_display(fitness.get('score'))}",
+        f"- error: {_concise_error(result)}",
+    ]
+    if "archive_role" in parent_row:
+        lines.insert(2, f"- archive_role: {_display(parent_row.get('archive_role'))}")
+    if any(
+        key in result
+        for key in ("cascade_rejected", "rejection_stage", "rejection_reason")
+    ):
+        lines.extend(
+            [
+                f"- cascade_rejected: {_display(result.get('cascade_rejected'))}",
+                f"- rejection_stage: {_display(result.get('rejection_stage'))}",
+                f"- rejection_reason: {_display(result.get('rejection_reason'))}",
+            ]
+        )
+    if include_level2_artifacts:
+        lines.extend(
+            [
+                f"- metaschedule_work_dir: {_display(result.get('metaschedule_work_dir'))}",
+                (
+                    "- metaschedule_database_tuning_record: "
+                    f"{_display(result.get('metaschedule_database_tuning_record'))}"
+                ),
+                (
+                    "- metaschedule_database_workload: "
+                    f"{_display(result.get('metaschedule_database_workload'))}"
+                ),
+                f"- scheduled_module_path: {_display(result.get('scheduled_module_path'))}",
+                (
+                    "- scheduled_module_json_path: "
+                    f"{_display(result.get('scheduled_module_json_path'))}"
+                ),
+                f"- used_fallback_schedule: {_display(result.get('used_fallback_schedule'))}",
+                "- selected_schedule_summary:",
+                indent(_selected_schedule_summary(result.get("scheduled_module_path")), "  "),
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _feedback_block(parent_feedback: str) -> str:
+    if not parent_feedback:
+        return ""
+    return "Parent evaluator feedback:\n" + parent_feedback
+
+
+def _selected_schedule_summary(path_value: Any) -> str:
+    if not path_value:
+        return "(unavailable)"
+    path = Path(str(path_value))
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as err:
+        return f"(unavailable: {type(err).__name__})"
+
+    summary = "\n".join(lines[:MAX_SCHEDULE_SUMMARY_LINES])
+    if len(lines) > MAX_SCHEDULE_SUMMARY_LINES:
+        summary += "\n..."
+    return _truncate(summary, MAX_SCHEDULE_SUMMARY_CHARS)
+
+
+def _concise_error(result: Mapping[str, Any]) -> str:
+    error_type = str(result.get("error_type") or "").strip()
+    error_message = " ".join(str(result.get("error_message") or "").split())
+    if not error_type and not error_message:
+        return "(none)"
+    if error_type and error_message:
+        return _truncate(f"{error_type}: {error_message}", MAX_ERROR_CHARS)
+    return _truncate(error_type or error_message, MAX_ERROR_CHARS)
+
+
+def _truncate(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    return value[: max_chars - 3] + "..."
+
+
+def _display(value: Any) -> str:
+    if value is None or value == "":
+        return "(unavailable)"
+    return str(value)
 
 
 def strip_code_fences(text: str) -> str:
