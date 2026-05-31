@@ -49,6 +49,10 @@ class MethodCase:
     search_max_trials_global: int | None = None
     search_num_trials_per_iter: int | None = None
     level2_final_evaluation_policy: str = "fresh-retune"
+    include_evaluator_feedback: bool = True
+    enable_rejection_cascade: bool = True
+    enable_elite_carry_forward: bool = False
+    enable_diverse_inspiration: bool = False
     dry_run: bool = True
 
 
@@ -179,6 +183,10 @@ def run_suite_case(
             search_max_trials_global=method_case.search_max_trials_global,
             search_num_trials_per_iter=method_case.search_num_trials_per_iter,
             level2_final_evaluation_policy=method_case.level2_final_evaluation_policy,
+            include_evaluator_feedback=method_case.include_evaluator_feedback,
+            enable_rejection_cascade=method_case.enable_rejection_cascade,
+            enable_elite_carry_forward=method_case.enable_elite_carry_forward,
+            enable_diverse_inspiration=method_case.enable_diverse_inspiration,
             dry_run=method_case.dry_run,
             bedrock_client=config.bedrock_client,
         ),

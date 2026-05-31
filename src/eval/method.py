@@ -81,6 +81,10 @@ class MethodRunConfig:
     search_max_trials_global: int | None = None
     search_num_trials_per_iter: int | None = None
     level2_final_evaluation_policy: str = "fresh-retune"
+    include_evaluator_feedback: bool = True
+    enable_rejection_cascade: bool = True
+    enable_elite_carry_forward: bool = False
+    enable_diverse_inspiration: bool = False
     dry_run: bool = True
     bedrock_client: BedrockClient | None = None
 
@@ -170,6 +174,10 @@ def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
         suite_name=config.suite_name,
         benchmark_group="evolution_search",
         experiment_method="level1-search",
+        include_evaluator_feedback=config.include_evaluator_feedback,
+        enable_rejection_cascade=config.enable_rejection_cascade,
+        enable_elite_carry_forward=config.enable_elite_carry_forward,
+        enable_diverse_inspiration=config.enable_diverse_inspiration,
     )
     evolution_time_sec = perf_counter() - start
     best = _best_or_raise(history)
@@ -224,6 +232,10 @@ def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
         suite_name=config.suite_name,
         benchmark_group="evolution_search",
         experiment_method="level2-search",
+        include_evaluator_feedback=config.include_evaluator_feedback,
+        enable_rejection_cascade=config.enable_rejection_cascade,
+        enable_elite_carry_forward=config.enable_elite_carry_forward,
+        enable_diverse_inspiration=config.enable_diverse_inspiration,
     )
     evolution_time_sec = perf_counter() - start
     best = _best_or_raise(history)
@@ -398,6 +410,10 @@ def _base_metadata(
         "benchmark_group": config.benchmark_group,
         "experiment_method": method,
         "selection_role": selection_role,
+        "evaluator_feedback_enabled": config.include_evaluator_feedback,
+        "rejection_cascade_enabled": config.enable_rejection_cascade,
+        "elite_carry_forward_enabled": config.enable_elite_carry_forward,
+        "diverse_inspiration_enabled": config.enable_diverse_inspiration,
     }
 
 

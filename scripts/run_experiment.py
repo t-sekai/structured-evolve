@@ -125,6 +125,26 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--disable-evaluator-feedback",
+        action="store_true",
+        help="Ablate compact parent evaluator feedback in mutation prompts.",
+    )
+    parser.add_argument(
+        "--disable-rejection-cascade",
+        action="store_true",
+        help="Ablate cheap syntax/compile/correctness rejection before full evaluation.",
+    )
+    parser.add_argument(
+        "--enable-elite-carry-forward",
+        action="store_true",
+        help="Carry elite survivors directly into the next generation.",
+    )
+    parser.add_argument(
+        "--enable-diverse-inspiration",
+        action="store_true",
+        help="Use one valid non-elite diverse inspiration source when available.",
+    )
+    parser.add_argument(
         "--use-bedrock",
         action="store_true",
         help="Use AWS Bedrock for evolution mutations. Otherwise deterministic dry-run mutations are used.",
@@ -229,6 +249,10 @@ def main() -> int:
                 search_max_trials_global=args.search_max_trials_global,
                 search_num_trials_per_iter=args.search_num_trials_per_iter,
                 level2_final_evaluation_policy=args.level2_final_evaluation_policy,
+                include_evaluator_feedback=not args.disable_evaluator_feedback,
+                enable_rejection_cascade=not args.disable_rejection_cascade,
+                enable_elite_carry_forward=args.enable_elite_carry_forward,
+                enable_diverse_inspiration=args.enable_diverse_inspiration,
                 dry_run=not args.use_bedrock,
                 bedrock_client=_bedrock_client(args) if args.use_bedrock else None,
             ),

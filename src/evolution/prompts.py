@@ -139,8 +139,9 @@ def evaluator_feedback(
         f"- fitness_score: {_display(fitness.get('score'))}",
         f"- error: {_concise_error(result)}",
     ]
-    if "archive_role" in parent_row:
-        lines.insert(2, f"- archive_role: {_display(parent_row.get('archive_role'))}")
+    selection_source_role = parent_row.get("selection_source_role")
+    if selection_source_role is not None:
+        lines.insert(2, f"- selection_source_role: {_display(selection_source_role)}")
     if any(
         key in result
         for key in ("cascade_rejected", "rejection_stage", "rejection_reason")

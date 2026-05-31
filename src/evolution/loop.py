@@ -19,6 +19,7 @@ from src.evolution.prompts import (
     mutation_prompt,
     strip_code_fences,
 )
+from src.evolution.selection import annotate_source, plan_metadata, plan_next_generation
 from src.strategies import StrategyBuildConfig, get_strategy
 
 
@@ -44,6 +45,10 @@ def run_schedule_evolution(
     suite_name: str | None = None,
     benchmark_group: str | None = None,
     experiment_method: str | None = None,
+    include_evaluator_feedback: bool = True,
+    enable_rejection_cascade: bool = True,
+    enable_elite_carry_forward: bool = False,
+    enable_diverse_inspiration: bool = False,
 ) -> list[dict[str, Any]]:
     """Run a small OpenEvolve-style loop over schedule candidate files."""
     if generations < 0:
@@ -89,6 +94,12 @@ def run_schedule_evolution(
             "benchmark_invocations": benchmark_invocations,
             "min_repeat_ms": min_repeat_ms,
             "dry_run": dry_run,
+            **_ablation_metadata(
+                include_evaluator_feedback=include_evaluator_feedback,
+                enable_rejection_cascade=enable_rejection_cascade,
+                enable_elite_carry_forward=enable_elite_carry_forward,
+                enable_diverse_inspiration=enable_diverse_inspiration,
+            ),
         },
     )
 
@@ -96,7 +107,9 @@ def run_schedule_evolution(
     seed_dir.mkdir(parents=True, exist_ok=True)
     seed_path = seed_dir / "candidate_000_seed.py"
     shutil.copyfile(seed_candidate_path, seed_path)
-    active = [Candidate(candidate_id="g000_c000_seed", generation=0, path=seed_path)]
+    active = [
+        Candidate(candidate_id="g000_c000_seed", generation=0, path=seed_path, origin="seed")
+    ]
 
     history: list[dict[str, Any]] = []
     for generation in range(generations + 1):
@@ -121,6 +134,10 @@ def run_schedule_evolution(
                 suite_name=suite_name,
                 benchmark_group=benchmark_group,
                 experiment_method=experiment_method,
+                enable_rejection_cascade=enable_rejection_cascade,
+                include_evaluator_feedback=include_evaluator_feedback,
+                enable_elite_carry_forward=enable_elite_carry_forward,
+                enable_diverse_inspiration=enable_diverse_inspiration,
             )
             for candidate in active
         ]
@@ -133,9 +150,9 @@ def run_schedule_evolution(
         if generation == generations:
             break
 
-        parents = evaluated[:survivors]
         active = _make_next_generation(
-            parents=parents,
+            evaluated=evaluated,
+            survivors=survivors,
             generation=generation + 1,
             generation_dir=run_dir / f"gen_{generation + 1:03d}",
             population_size=population_size,
@@ -145,6 +162,10 @@ def run_schedule_evolution(
             K=K,
             bedrock_client=bedrock_client,
             dry_run=dry_run,
+            include_evaluator_feedback=include_evaluator_feedback,
+            enable_rejection_cascade=enable_rejection_cascade,
+            enable_elite_carry_forward=enable_elite_carry_forward,
+            enable_diverse_inspiration=enable_diverse_inspiration,
         )
 
     history.sort(key=lambda row: row["fitness"]["score"], reverse=True)
@@ -172,37 +193,58 @@ def _evaluate_candidate(
     suite_name: str | None,
     benchmark_group: str | None,
     experiment_method: str | None,
+    enable_rejection_cascade: bool,
+    include_evaluator_feedback: bool,
+    enable_elite_carry_forward: bool,
+    enable_diverse_inspiration: bool,
 ) -> dict[str, Any]:
-    metadata = _candidate_metadata(
-        candidate=candidate,
-        strategy=strategy,
-        run_id=run_id,
-        run_dir=run_dir,
-        experiment_id=experiment_id,
-        suite_name=suite_name,
-        benchmark_group=benchmark_group,
-        experiment_method=experiment_method,
-    )
-    cascade = syntax_check(candidate.path)
-    metadata = {**metadata, **cascade.metadata}
-    if not cascade.passed:
-        result = record_rejected_matmul_experiment(
+    metadata = {
+        **_candidate_metadata(
+            candidate=candidate,
             strategy=strategy,
-            M=M,
-            N=N,
-            K=K,
-            target_name=target_name,
-            num_warmup=num_warmup,
-            num_trials=num_trials,
-            benchmark_invocations=benchmark_invocations,
-            min_repeat_ms=min_repeat_ms,
-            output_dir=output_dir,
-            rejection_stage=cascade.stage,
-            rejection_reason=cascade.reason,
-            extra_metadata=metadata,
-            postprocess_result=_fitness_metadata,
-        )
-        return _evaluated_candidate(candidate, result)
+            run_id=run_id,
+            run_dir=run_dir,
+            experiment_id=experiment_id,
+            suite_name=suite_name,
+            benchmark_group=benchmark_group,
+            experiment_method=experiment_method,
+        ),
+        **_ablation_metadata(
+            include_evaluator_feedback=include_evaluator_feedback,
+            enable_rejection_cascade=enable_rejection_cascade,
+            enable_elite_carry_forward=enable_elite_carry_forward,
+            enable_diverse_inspiration=enable_diverse_inspiration,
+        ),
+    }
+    if enable_rejection_cascade:
+        cascade = syntax_check(candidate.path)
+        metadata = {**metadata, **cascade.metadata}
+        if not cascade.passed:
+            result = record_rejected_matmul_experiment(
+                strategy=strategy,
+                M=M,
+                N=N,
+                K=K,
+                target_name=target_name,
+                num_warmup=num_warmup,
+                num_trials=num_trials,
+                benchmark_invocations=benchmark_invocations,
+                min_repeat_ms=min_repeat_ms,
+                output_dir=output_dir,
+                rejection_stage=cascade.stage,
+                rejection_reason=cascade.reason,
+                extra_metadata=metadata,
+                postprocess_result=_fitness_metadata,
+            )
+            return _evaluated_candidate(candidate, result)
+    else:
+        metadata = {
+            **metadata,
+            "cascade_rejected": False,
+            "rejection_stage": "",
+            "rejection_reason": "",
+            "tuning_skipped": False,
+        }
 
     result = run_matmul_experiment(
         strategy=strategy,
@@ -242,7 +284,8 @@ def _evaluated_candidate(candidate: Candidate, result: dict[str, Any]) -> dict[s
 
 def _make_next_generation(
     *,
-    parents: list[dict[str, Any]],
+    evaluated: list[dict[str, Any]],
+    survivors: int,
     generation: int,
     generation_dir: Path,
     population_size: int,
@@ -252,11 +295,50 @@ def _make_next_generation(
     K: int,
     bedrock_client: BedrockClient | None,
     dry_run: bool,
+    include_evaluator_feedback: bool,
+    enable_rejection_cascade: bool,
+    enable_elite_carry_forward: bool,
+    enable_diverse_inspiration: bool,
 ) -> list[Candidate]:
     generation_dir.mkdir(parents=True, exist_ok=True)
+    plan = plan_next_generation(
+        evaluated,
+        survivors=survivors,
+        population_size=population_size,
+        enable_elite_carry_forward=enable_elite_carry_forward,
+        enable_diverse_inspiration=enable_diverse_inspiration,
+    )
+    _write_json(
+        generation_dir / "selection.json",
+        {
+            "generation": generation,
+            **_ablation_metadata(
+                include_evaluator_feedback=include_evaluator_feedback,
+                enable_rejection_cascade=enable_rejection_cascade,
+                enable_elite_carry_forward=enable_elite_carry_forward,
+                enable_diverse_inspiration=enable_diverse_inspiration,
+            ),
+            **plan_metadata(plan),
+        },
+    )
     next_candidates: list[Candidate] = []
-    for index in range(population_size):
-        parent_row = parents[index % len(parents)]
+    for index, elite in enumerate(plan.elites):
+        parent = elite["candidate"]
+        candidate_id = f"g{generation:03d}_c{index:03d}_elite"
+        candidate_path = generation_dir / f"candidate_{index:03d}_elite.py"
+        shutil.copyfile(Path(parent["path"]), candidate_path)
+        next_candidates.append(
+            Candidate(
+                candidate_id=candidate_id,
+                generation=generation,
+                path=candidate_path,
+                parent_id=parent["candidate_id"],
+                origin="elite",
+            )
+        )
+
+    for index, source in enumerate(plan.mutation_sources, start=len(plan.elites)):
+        parent_row = annotate_source(source)
         parent = parent_row["candidate"]
         parent_path = Path(parent["path"])
         parent_code = parent_path.read_text(encoding="utf-8")
@@ -273,7 +355,9 @@ def _make_next_generation(
             K=K,
             generation=generation,
             candidate_index=index,
-            parent_feedback=evaluator_feedback(parent_row),
+            parent_feedback=(
+                evaluator_feedback(parent_row) if include_evaluator_feedback else ""
+            ),
         )
         prompt_path.write_text(prompt + "\n", encoding="utf-8")
 
@@ -298,6 +382,16 @@ def _make_next_generation(
                 parent_id=parent["candidate_id"],
                 prompt_path=prompt_path,
                 response_path=response_path,
+                origin=(
+                    "inspiration_mutation"
+                    if source.selection_source_role == "diverse_inspiration"
+                    else "mutation"
+                ),
+                inspiration_id=(
+                    parent["candidate_id"]
+                    if source.selection_source_role == "diverse_inspiration"
+                    else None
+                ),
             )
         )
     return next_candidates
@@ -319,6 +413,8 @@ def _candidate_dict(candidate: Candidate) -> dict[str, Any]:
         "parent_id": candidate.parent_id,
         "prompt_path": str(candidate.prompt_path) if candidate.prompt_path else None,
         "response_path": str(candidate.response_path) if candidate.response_path else None,
+        "origin": candidate.origin,
+        "inspiration_id": candidate.inspiration_id,
     }
 
 
@@ -343,6 +439,8 @@ def _candidate_metadata(
         "generation": candidate.generation,
         "candidate_id": candidate.candidate_id,
         "parent_id": candidate.parent_id,
+        "candidate_origin": candidate.origin,
+        "inspiration_id": candidate.inspiration_id,
         "selection_role": "candidate",
         "candidate_path": candidate.path,
         "prompt_path": candidate.prompt_path,
@@ -357,6 +455,21 @@ def _fitness_metadata(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "fitness_score": fitness.score,
         "fitness_reason": fitness.reason,
+    }
+
+
+def _ablation_metadata(
+    *,
+    include_evaluator_feedback: bool,
+    enable_rejection_cascade: bool,
+    enable_elite_carry_forward: bool,
+    enable_diverse_inspiration: bool,
+) -> dict[str, Any]:
+    return {
+        "evaluator_feedback_enabled": include_evaluator_feedback,
+        "rejection_cascade_enabled": enable_rejection_cascade,
+        "elite_carry_forward_enabled": enable_elite_carry_forward,
+        "diverse_inspiration_enabled": enable_diverse_inspiration,
     }
 
 
