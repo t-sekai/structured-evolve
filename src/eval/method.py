@@ -31,6 +31,11 @@ METHOD_TO_STRATEGY = {
     "level2-candidate": "generated-search-space",
 }
 
+LEVEL2_FINAL_EVALUATION_POLICIES = (
+    "fresh-retune",
+    "exact-winner",
+)
+
 
 @dataclass(frozen=True)
 class MethodRunConfig:
@@ -43,6 +48,8 @@ class MethodRunConfig:
     output_dir: Path
     num_warmup: int = 3
     num_trials: int = 10
+    benchmark_invocations: int = 1
+    min_repeat_ms: int | None = None
     experiment_id: str | None = None
     suite_name: str | None = None
     run_id: str | None = None
@@ -69,8 +76,15 @@ class MethodRunConfig:
     survivors: int = 1
     search_num_warmup: int | None = None
     search_num_trials: int | None = None
+    search_benchmark_invocations: int | None = None
+    search_min_repeat_ms: int | None = None
     search_max_trials_global: int | None = None
     search_num_trials_per_iter: int | None = None
+    level2_final_evaluation_policy: str = "fresh-retune"
+    include_evaluator_feedback: bool = True
+    enable_rejection_cascade: bool = True
+    enable_elite_carry_forward: bool = False
+    enable_diverse_inspiration: bool = False
     dry_run: bool = True
     bedrock_client: BedrockClient | None = None
 
@@ -122,6 +136,8 @@ def _run_existing_candidate(*, method: str, config: MethodRunConfig) -> dict[str
         target_name=config.target_name,
         num_warmup=config.num_warmup,
         num_trials=config.num_trials,
+        benchmark_invocations=config.benchmark_invocations,
+        min_repeat_ms=config.min_repeat_ms,
         output_dir=config.output_dir,
         bad_baseline=config.bad_baseline,
         extra_metadata=_base_metadata(
@@ -150,12 +166,18 @@ def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
         K=config.K,
         num_warmup=search_config.search_num_warmup or config.num_warmup,
         num_trials=search_config.search_num_trials or config.num_trials,
+        benchmark_invocations=_search_benchmark_invocations(config),
+        min_repeat_ms=_search_min_repeat_ms(config),
         bedrock_client=config.bedrock_client,
         dry_run=config.dry_run,
         experiment_id=config.experiment_id,
         suite_name=config.suite_name,
         benchmark_group="evolution_search",
         experiment_method="level1-search",
+        include_evaluator_feedback=config.include_evaluator_feedback,
+        enable_rejection_cascade=config.enable_rejection_cascade,
+        enable_elite_carry_forward=config.enable_elite_carry_forward,
+        enable_diverse_inspiration=config.enable_diverse_inspiration,
     )
     evolution_time_sec = perf_counter() - start
     best = _best_or_raise(history)
@@ -173,6 +195,7 @@ def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
 
 
 def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
+    _validate_level2_final_evaluation_policy(config.level2_final_evaluation_policy)
     run_dir = _evolution_run_dir(config, "level2-search")
     search_config = _search_config(config)
 
@@ -193,6 +216,8 @@ def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
         K=config.K,
         num_warmup=search_config.search_num_warmup or config.num_warmup,
         num_trials=search_config.search_num_trials or config.num_trials,
+        benchmark_invocations=_search_benchmark_invocations(config),
+        min_repeat_ms=_search_min_repeat_ms(config),
         max_trials_global=search_config.search_max_trials_global or config.max_trials_global,
         num_trials_per_iter=(
             search_config.search_num_trials_per_iter or config.num_trials_per_iter
@@ -207,6 +232,10 @@ def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
         suite_name=config.suite_name,
         benchmark_group="evolution_search",
         experiment_method="level2-search",
+        include_evaluator_feedback=config.include_evaluator_feedback,
+        enable_rejection_cascade=config.enable_rejection_cascade,
+        enable_elite_carry_forward=config.enable_elite_carry_forward,
+        enable_diverse_inspiration=config.enable_diverse_inspiration,
     )
     evolution_time_sec = perf_counter() - start
     best = _best_or_raise(history)
@@ -233,7 +262,6 @@ def _run_evolved_best(
     best: dict[str, Any],
     evolution_time_sec: float,
 ) -> dict[str, Any]:
-    strategy = get_strategy(strategy_name)
     strategy_config = StrategyBuildConfig(
         max_trials_global=config.max_trials_global,
         max_trials_per_task=config.max_trials_per_task,
@@ -246,6 +274,17 @@ def _run_evolved_best(
         generated_schedule_path=config.generated_schedule_path,
         generated_search_space_path=config.generated_search_space_path,
     )
+    selection_role = "best_of_search"
+    final_evaluation_metadata: dict[str, Any] = {}
+    if method == "level2-search":
+        strategy_name, strategy_config, selection_role, final_evaluation_metadata = (
+            _level2_final_evaluation(
+                config=config,
+                best=best,
+                fresh_retune_config=strategy_config,
+            )
+        )
+    strategy = get_strategy(strategy_name)
     result = run_matmul_experiment(
         strategy=strategy,
         strategy_config=strategy_config,
@@ -255,13 +294,15 @@ def _run_evolved_best(
         target_name=config.target_name,
         num_warmup=config.num_warmup,
         num_trials=config.num_trials,
+        benchmark_invocations=config.benchmark_invocations,
+        min_repeat_ms=config.min_repeat_ms,
         output_dir=config.output_dir,
         bad_baseline=config.bad_baseline,
         extra_metadata=(
             _base_metadata(
                 method=method,
                 config=config,
-                selection_role="best_of_search",
+                selection_role=selection_role,
             )
             | _evolution_metadata(
                 run_dir=run_dir,
@@ -269,11 +310,81 @@ def _run_evolved_best(
                 best=best,
                 evolution_time_sec=evolution_time_sec,
             )
+            | final_evaluation_metadata
         ),
     )
     result["evolution_history"] = str(run_dir / "history.json")
     result["evolution_best"] = str(run_dir / "best.json")
     return result
+
+
+def _level2_final_evaluation(
+    *,
+    config: MethodRunConfig,
+    best: dict[str, Any],
+    fresh_retune_config: StrategyBuildConfig,
+) -> tuple[str, StrategyBuildConfig, str, dict[str, Any]]:
+    policy = config.level2_final_evaluation_policy
+    _validate_level2_final_evaluation_policy(policy)
+    best_result = best["result"]
+    metadata = {
+        "final_evaluation_policy": policy,
+        "search_winner_scheduled_module_path": best_result.get("scheduled_module_path"),
+        "search_winner_scheduled_module_json_path": best_result.get(
+            "scheduled_module_json_path"
+        ),
+        "search_winner_metaschedule_work_dir": best_result.get("metaschedule_work_dir"),
+        "search_winner_metaschedule_database_tuning_record": best_result.get(
+            "metaschedule_database_tuning_record"
+        ),
+        "search_winner_metaschedule_database_workload": best_result.get(
+            "metaschedule_database_workload"
+        ),
+        "search_winner_used_fallback_schedule": best_result.get("used_fallback_schedule"),
+    }
+    if policy == "fresh-retune":
+        return (
+            "generated-search-space",
+            fresh_retune_config,
+            "best_of_search_fresh_retune",
+            metadata
+            | {
+                "final_evaluation_semantics": "retune_winning_search_space_generator",
+                "exact_schedule_reused": False,
+            },
+        )
+
+    return (
+        "saved-scheduled-module",
+        StrategyBuildConfig(
+            saved_scheduled_module_path=_optional_path(
+                best_result.get("scheduled_module_path")
+            ),
+            saved_scheduled_module_json_path=_optional_path(
+                best_result.get("scheduled_module_json_path")
+            ),
+        ),
+        "best_of_search_exact_winner",
+        metadata
+        | {
+            "final_evaluation_semantics": "reuse_search_time_scheduled_module",
+            "exact_schedule_reused": True,
+        },
+    )
+
+
+def _validate_level2_final_evaluation_policy(policy: str) -> None:
+    if policy not in LEVEL2_FINAL_EVALUATION_POLICIES:
+        choices = ", ".join(LEVEL2_FINAL_EVALUATION_POLICIES)
+        raise ValueError(
+            f"Unknown Level 2 final-evaluation policy {policy!r}. Available: {choices}"
+        )
+
+
+def _optional_path(value: Any) -> Path | None:
+    if value is None or value == "":
+        return None
+    return Path(str(value))
 
 
 def default_level2_search_space_path(target_name: str) -> Path:
@@ -299,6 +410,10 @@ def _base_metadata(
         "benchmark_group": config.benchmark_group,
         "experiment_method": method,
         "selection_role": selection_role,
+        "evaluator_feedback_enabled": config.include_evaluator_feedback,
+        "rejection_cascade_enabled": config.enable_rejection_cascade,
+        "elite_carry_forward_enabled": config.enable_elite_carry_forward,
+        "diverse_inspiration_enabled": config.enable_diverse_inspiration,
     }
 
 
@@ -347,3 +462,15 @@ def _best_or_raise(history: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _search_config(config: MethodRunConfig) -> MethodRunConfig:
     return config
+
+
+def _search_benchmark_invocations(config: MethodRunConfig) -> int:
+    if config.search_benchmark_invocations is not None:
+        return config.search_benchmark_invocations
+    return config.benchmark_invocations
+
+
+def _search_min_repeat_ms(config: MethodRunConfig) -> int | None:
+    if config.search_min_repeat_ms is not None:
+        return config.search_min_repeat_ms
+    return config.min_repeat_ms

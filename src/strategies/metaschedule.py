@@ -61,6 +61,13 @@ class MetaScheduleStrategy:
             schedule = compile_tir(database, ir_module, target)
         tuning_time_sec = perf_counter() - start
 
+        if schedule is None:
+            raise RuntimeError(
+                "MetaSchedule produced no valid schedule. "
+                f"target={target_name}, work_dir={work_dir}. "
+                "Inspect the MetaSchedule task log for postprocessor failures."
+            )
+
         scheduled_module = schedule.mod
         scheduled_module_path = work_dir / "scheduled_module.txt"
         scheduled_module_path.write_text(str(scheduled_module), encoding="utf-8")

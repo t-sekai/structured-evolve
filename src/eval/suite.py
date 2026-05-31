@@ -44,8 +44,15 @@ class MethodCase:
     survivors: int = 1
     search_num_warmup: int | None = None
     search_num_trials: int | None = None
+    search_benchmark_invocations: int | None = None
+    search_min_repeat_ms: int | None = None
     search_max_trials_global: int | None = None
     search_num_trials_per_iter: int | None = None
+    level2_final_evaluation_policy: str = "fresh-retune"
+    include_evaluator_feedback: bool = True
+    enable_rejection_cascade: bool = True
+    enable_elite_carry_forward: bool = False
+    enable_diverse_inspiration: bool = False
     dry_run: bool = True
 
 
@@ -59,6 +66,8 @@ class SuiteRunConfig:
     suite_name: str
     num_warmup: int
     num_trials: int
+    benchmark_invocations: int = 1
+    min_repeat_ms: int | None = None
     bad_baseline: bool = False
     bedrock_client: Any = None
 
@@ -90,6 +99,8 @@ def run_benchmark_suite(
             "suite_dir": str(config.suite_dir),
             "num_warmup": config.num_warmup,
             "num_trials": config.num_trials,
+            "benchmark_invocations": config.benchmark_invocations,
+            "min_repeat_ms": config.min_repeat_ms,
             "tasks": [{**asdict(task), "case_id": task.case_id} for task in task_list],
             "methods": [_method_manifest(method) for method in method_list],
         },
@@ -137,6 +148,8 @@ def run_suite_case(
             output_dir=config.output_dir,
             num_warmup=config.num_warmup,
             num_trials=config.num_trials,
+            benchmark_invocations=config.benchmark_invocations,
+            min_repeat_ms=config.min_repeat_ms,
             experiment_id=config.experiment_id,
             suite_name=config.suite_name,
             run_id=f"{task.case_id}_{method_case.name}",
@@ -165,8 +178,15 @@ def run_suite_case(
             survivors=method_case.survivors,
             search_num_warmup=method_case.search_num_warmup,
             search_num_trials=method_case.search_num_trials,
+            search_benchmark_invocations=method_case.search_benchmark_invocations,
+            search_min_repeat_ms=method_case.search_min_repeat_ms,
             search_max_trials_global=method_case.search_max_trials_global,
             search_num_trials_per_iter=method_case.search_num_trials_per_iter,
+            level2_final_evaluation_policy=method_case.level2_final_evaluation_policy,
+            include_evaluator_feedback=method_case.include_evaluator_feedback,
+            enable_rejection_cascade=method_case.enable_rejection_cascade,
+            enable_elite_carry_forward=method_case.enable_elite_carry_forward,
+            enable_diverse_inspiration=method_case.enable_diverse_inspiration,
             dry_run=method_case.dry_run,
             bedrock_client=config.bedrock_client,
         ),
@@ -199,6 +219,10 @@ def _write_summary(path: Path, results: list[dict[str, Any]]) -> None:
         "correctness_passed",
         "latency_ms_mean",
         "latency_ms_std",
+        "selection_role",
+        "final_evaluation_policy",
+        "benchmark_invocations",
+        "min_repeat_ms",
         "tuning_time_sec",
         "json_result",
     ]

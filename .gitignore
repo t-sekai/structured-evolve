@@ -52,3 +52,5 @@ generated/**/scheduled_module.txt
 .vscode/
 *.swp
 *.swo
+
+research_compartments/

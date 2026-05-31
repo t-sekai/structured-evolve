@@ -16,4 +16,5 @@ class Candidate:
     parent_id: str | None = None
     prompt_path: Path | None = None
     response_path: Path | None = None
-
+    origin: str = "mutation"
+    inspiration_id: str | None = None

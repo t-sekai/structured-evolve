@@ -6,6 +6,7 @@ from src.strategies.fixed import FixedScheduleStrategy
 from src.strategies.generated_schedule import GeneratedScheduleStrategy
 from src.strategies.generated_search_space import GeneratedSearchSpaceStrategy
 from src.strategies.metaschedule import MetaScheduleStrategy
+from src.strategies.saved_scheduled_module import SavedScheduledModuleStrategy
 
 
 _STRATEGIES = {
@@ -13,6 +14,7 @@ _STRATEGIES = {
     GeneratedScheduleStrategy.name: GeneratedScheduleStrategy,
     GeneratedSearchSpaceStrategy.name: GeneratedSearchSpaceStrategy,
     MetaScheduleStrategy.name: MetaScheduleStrategy,
+    SavedScheduledModuleStrategy.name: SavedScheduledModuleStrategy,
 }
 
 

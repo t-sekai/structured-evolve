@@ -96,6 +96,11 @@ class GeneratedSearchSpaceStrategy:
         scheduled_module = schedule.mod
         scheduled_module_path = work_dir / "scheduled_module.txt"
         scheduled_module_path.write_text(str(scheduled_module), encoding="utf-8")
+        scheduled_module_json_path = work_dir / "scheduled_module.json"
+        scheduled_module_json_path.write_text(
+            tvm.ir.save_json(scheduled_module),
+            encoding="utf-8",
+        )
 
         lib = tvm.build(scheduled_module, target=target)
         return StrategyBuildResult(
@@ -113,6 +118,8 @@ class GeneratedSearchSpaceStrategy:
                     work_dir / "database_tuning_record.json"
                 ),
                 "scheduled_module_path": str(scheduled_module_path),
+                "scheduled_module_json_path": str(scheduled_module_json_path),
+                "exact_schedule_reused": False,
                 "max_trials_global": config.max_trials_global,
                 "max_trials_per_task": config.max_trials_per_task,
                 "num_trials_per_iter": config.num_trials_per_iter,

@@ -93,13 +93,21 @@ def measure_latency_ms(
     c_tvm: Any,
     num_warmup: int,
     num_trials: int,
+    benchmark_invocations: int = 1,
+    min_repeat_ms: int | None = None,
 ) -> LatencyStats:
     """Measure runtime in milliseconds using TVM's built-in time evaluator."""
     for _ in range(num_warmup):
         lib["main"](a_tvm, b_tvm, c_tvm)
     device.sync()
 
-    evaluator = lib.time_evaluator("main", device, number=1, repeat=num_trials)
+    evaluator_kwargs = {
+        "number": benchmark_invocations,
+        "repeat": num_trials,
+    }
+    if min_repeat_ms is not None:
+        evaluator_kwargs["min_repeat_ms"] = min_repeat_ms
+    evaluator = lib.time_evaluator("main", device, **evaluator_kwargs)
     timing_result = evaluator(a_tvm, b_tvm, c_tvm)
     samples_ms = [float(sample * 1_000.0) for sample in timing_result.results]
     return LatencyStats(
