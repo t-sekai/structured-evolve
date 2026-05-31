@@ -8,9 +8,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from src.eval.experiment import run_matmul_experiment
+from src.eval.experiment import record_rejected_matmul_experiment, run_matmul_experiment
 from src.evolution.bedrock_client import BedrockClient
 from src.evolution.candidate import Candidate
+from src.evolution.cascade import preflight_generated_search_space
 from src.evolution.fitness import FitnessResult, score_result
 from src.evolution.prompts import (
     SYSTEM_PROMPT,
@@ -198,6 +199,43 @@ def _evaluate_candidate(
     benchmark_group: str | None,
     experiment_method: str | None,
 ) -> dict[str, Any]:
+    metadata = _candidate_metadata(
+        candidate=candidate,
+        strategy=strategy,
+        run_id=run_id,
+        run_dir=run_dir,
+        experiment_id=experiment_id,
+        suite_name=suite_name,
+        benchmark_group=benchmark_group,
+        experiment_method=experiment_method,
+    )
+    cascade = preflight_generated_search_space(
+        candidate.path,
+        m=M,
+        n=N,
+        k=K,
+        target_name=target_name,
+    )
+    metadata = {**metadata, **cascade.metadata}
+    if not cascade.passed:
+        result = record_rejected_matmul_experiment(
+            strategy=strategy,
+            M=M,
+            N=N,
+            K=K,
+            target_name=target_name,
+            num_warmup=num_warmup,
+            num_trials=num_trials,
+            benchmark_invocations=benchmark_invocations,
+            min_repeat_ms=min_repeat_ms,
+            output_dir=output_dir,
+            rejection_stage=cascade.stage,
+            rejection_reason=cascade.reason,
+            extra_metadata=metadata,
+            postprocess_result=_fitness_metadata,
+        )
+        return _evaluated_candidate(candidate, result)
+
     safe_id = candidate.candidate_id.replace("/", "_")
     result = run_matmul_experiment(
         strategy=strategy,
@@ -220,18 +258,19 @@ def _evaluate_candidate(
         benchmark_invocations=benchmark_invocations,
         min_repeat_ms=min_repeat_ms,
         output_dir=output_dir,
-        extra_metadata=_candidate_metadata(
-            candidate=candidate,
-            strategy=strategy,
-            run_id=run_id,
-            run_dir=run_dir,
-            experiment_id=experiment_id,
-            suite_name=suite_name,
-            benchmark_group=benchmark_group,
-            experiment_method=experiment_method,
-        ),
+        extra_metadata={
+            **metadata,
+            "cascade_rejected": False,
+            "rejection_stage": "",
+            "rejection_reason": "",
+            "tuning_skipped": False,
+        },
         postprocess_result=_fitness_metadata,
     )
+    return _evaluated_candidate(candidate, result)
+
+
+def _evaluated_candidate(candidate: Candidate, result: dict[str, Any]) -> dict[str, Any]:
     fitness = FitnessResult(
         score=float(result["fitness_score"]),
         reason=str(result["fitness_reason"]),

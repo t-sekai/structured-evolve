@@ -143,11 +143,63 @@ def run_matmul_experiment(
         if postprocessed:
             result.update(_jsonable_metadata(postprocessed))
 
-    json_path = save_json_result(result, output_dir)
-    csv_path = append_csv_result(result, output_dir)
-    result["json_result"] = str(json_path)
-    result["csv_result"] = str(csv_path)
-    return result
+    return _persist_result(result, output_dir)
+
+
+def record_rejected_matmul_experiment(
+    *,
+    strategy: MatmulStrategy,
+    M: int,
+    N: int,
+    K: int,
+    target_name: str,
+    num_warmup: int,
+    num_trials: int,
+    benchmark_invocations: int,
+    min_repeat_ms: int | None,
+    output_dir: Path,
+    rejection_stage: str,
+    rejection_reason: str,
+    extra_metadata: Mapping[str, Any] | None = None,
+    postprocess_result: Callable[[dict[str, Any]], Mapping[str, Any] | None] | None = None,
+) -> dict[str, Any]:
+    """Persist a candidate rejected before its full benchmark and tuning path."""
+    result = _base_result(
+        strategy=strategy,
+        M=M,
+        N=N,
+        K=K,
+        target_name=target_name,
+        device="",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        num_warmup=num_warmup,
+        num_trials=num_trials,
+        benchmark_invocations=benchmark_invocations,
+        min_repeat_ms=min_repeat_ms,
+        bad_baseline=False,
+        extra_metadata=extra_metadata,
+    )
+    result.update(
+        {
+            "compile_passed": False,
+            "correctness_passed": False,
+            "max_abs_error": None,
+            "mean_abs_error": None,
+            "latency_ms_mean": None,
+            "latency_ms_std": None,
+            "cascade_rejected": True,
+            "rejection_stage": rejection_stage,
+            "rejection_reason": _truncate(rejection_reason),
+            "tuning_skipped": True,
+            "error_type": "CascadeRejected",
+            "error_message": _truncate(f"{rejection_stage}: {rejection_reason}"),
+        }
+    )
+    if postprocess_result is not None:
+        postprocessed = postprocess_result(result)
+        if postprocessed:
+            result.update(_jsonable_metadata(postprocessed))
+    return _persist_result(result, output_dir)
 
 
 def _base_result(
@@ -188,6 +240,14 @@ def _base_result(
     }
     if extra_metadata:
         result.update(_jsonable_metadata(extra_metadata))
+    return result
+
+
+def _persist_result(result: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+    json_path = save_json_result(result, output_dir)
+    csv_path = append_csv_result(result, output_dir)
+    result["json_result"] = str(json_path)
+    result["csv_result"] = str(csv_path)
     return result
 
 
