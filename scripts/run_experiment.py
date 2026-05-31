@@ -22,6 +22,11 @@ METHOD_NAMES = (
     "level2-search",
 )
 
+LEVEL2_FINAL_EVALUATION_POLICIES = (
+    "fresh-retune",
+    "exact-winner",
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -110,6 +115,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--search-min-repeat-ms", type=int, default=None)
     parser.add_argument("--search-max-trials-global", type=int, default=None)
     parser.add_argument("--search-num-trials-per-iter", type=int, default=None)
+    parser.add_argument(
+        "--level2-final-evaluation-policy",
+        choices=LEVEL2_FINAL_EVALUATION_POLICIES,
+        default="fresh-retune",
+        help=(
+            "For level2-search, either freshly retune the winning search-space "
+            "generator or benchmark the exact schedule selected during search."
+        ),
+    )
     parser.add_argument(
         "--use-bedrock",
         action="store_true",
@@ -214,6 +228,7 @@ def main() -> int:
                 search_min_repeat_ms=args.search_min_repeat_ms,
                 search_max_trials_global=args.search_max_trials_global,
                 search_num_trials_per_iter=args.search_num_trials_per_iter,
+                level2_final_evaluation_policy=args.level2_final_evaluation_policy,
                 dry_run=not args.use_bedrock,
                 bedrock_client=_bedrock_client(args) if args.use_bedrock else None,
             ),
@@ -234,6 +249,8 @@ def _print_result(result: dict) -> None:
     print(f"method: {result.get('experiment_method')}")
     print(f"strategy: {result['strategy']}")
     print(f"level: {result['level']}")
+    if result.get("final_evaluation_policy"):
+        print(f"final_evaluation_policy: {result['final_evaluation_policy']}")
     print(f"compile: {'PASS' if result['compile_passed'] else 'FAIL'}")
     print(f"correctness: {status}")
     if result["compile_passed"]:

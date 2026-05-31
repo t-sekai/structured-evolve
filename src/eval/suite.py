@@ -48,6 +48,7 @@ class MethodCase:
     search_min_repeat_ms: int | None = None
     search_max_trials_global: int | None = None
     search_num_trials_per_iter: int | None = None
+    level2_final_evaluation_policy: str = "fresh-retune"
     dry_run: bool = True
 
 
@@ -177,6 +178,7 @@ def run_suite_case(
             search_min_repeat_ms=method_case.search_min_repeat_ms,
             search_max_trials_global=method_case.search_max_trials_global,
             search_num_trials_per_iter=method_case.search_num_trials_per_iter,
+            level2_final_evaluation_policy=method_case.level2_final_evaluation_policy,
             dry_run=method_case.dry_run,
             bedrock_client=config.bedrock_client,
         ),
@@ -209,6 +211,8 @@ def _write_summary(path: Path, results: list[dict[str, Any]]) -> None:
         "correctness_passed",
         "latency_ms_mean",
         "latency_ms_std",
+        "selection_role",
+        "final_evaluation_policy",
         "benchmark_invocations",
         "min_repeat_ms",
         "tuning_time_sec",

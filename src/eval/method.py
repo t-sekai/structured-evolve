@@ -31,6 +31,11 @@ METHOD_TO_STRATEGY = {
     "level2-candidate": "generated-search-space",
 }
 
+LEVEL2_FINAL_EVALUATION_POLICIES = (
+    "fresh-retune",
+    "exact-winner",
+)
+
 
 @dataclass(frozen=True)
 class MethodRunConfig:
@@ -75,6 +80,7 @@ class MethodRunConfig:
     search_min_repeat_ms: int | None = None
     search_max_trials_global: int | None = None
     search_num_trials_per_iter: int | None = None
+    level2_final_evaluation_policy: str = "fresh-retune"
     dry_run: bool = True
     bedrock_client: BedrockClient | None = None
 
@@ -181,6 +187,7 @@ def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
 
 
 def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
+    _validate_level2_final_evaluation_policy(config.level2_final_evaluation_policy)
     run_dir = _evolution_run_dir(config, "level2-search")
     search_config = _search_config(config)
 
@@ -243,7 +250,6 @@ def _run_evolved_best(
     best: dict[str, Any],
     evolution_time_sec: float,
 ) -> dict[str, Any]:
-    strategy = get_strategy(strategy_name)
     strategy_config = StrategyBuildConfig(
         max_trials_global=config.max_trials_global,
         max_trials_per_task=config.max_trials_per_task,
@@ -256,6 +262,17 @@ def _run_evolved_best(
         generated_schedule_path=config.generated_schedule_path,
         generated_search_space_path=config.generated_search_space_path,
     )
+    selection_role = "best_of_search"
+    final_evaluation_metadata: dict[str, Any] = {}
+    if method == "level2-search":
+        strategy_name, strategy_config, selection_role, final_evaluation_metadata = (
+            _level2_final_evaluation(
+                config=config,
+                best=best,
+                fresh_retune_config=strategy_config,
+            )
+        )
+    strategy = get_strategy(strategy_name)
     result = run_matmul_experiment(
         strategy=strategy,
         strategy_config=strategy_config,
@@ -273,7 +290,7 @@ def _run_evolved_best(
             _base_metadata(
                 method=method,
                 config=config,
-                selection_role="best_of_search",
+                selection_role=selection_role,
             )
             | _evolution_metadata(
                 run_dir=run_dir,
@@ -281,11 +298,81 @@ def _run_evolved_best(
                 best=best,
                 evolution_time_sec=evolution_time_sec,
             )
+            | final_evaluation_metadata
         ),
     )
     result["evolution_history"] = str(run_dir / "history.json")
     result["evolution_best"] = str(run_dir / "best.json")
     return result
+
+
+def _level2_final_evaluation(
+    *,
+    config: MethodRunConfig,
+    best: dict[str, Any],
+    fresh_retune_config: StrategyBuildConfig,
+) -> tuple[str, StrategyBuildConfig, str, dict[str, Any]]:
+    policy = config.level2_final_evaluation_policy
+    _validate_level2_final_evaluation_policy(policy)
+    best_result = best["result"]
+    metadata = {
+        "final_evaluation_policy": policy,
+        "search_winner_scheduled_module_path": best_result.get("scheduled_module_path"),
+        "search_winner_scheduled_module_json_path": best_result.get(
+            "scheduled_module_json_path"
+        ),
+        "search_winner_metaschedule_work_dir": best_result.get("metaschedule_work_dir"),
+        "search_winner_metaschedule_database_tuning_record": best_result.get(
+            "metaschedule_database_tuning_record"
+        ),
+        "search_winner_metaschedule_database_workload": best_result.get(
+            "metaschedule_database_workload"
+        ),
+        "search_winner_used_fallback_schedule": best_result.get("used_fallback_schedule"),
+    }
+    if policy == "fresh-retune":
+        return (
+            "generated-search-space",
+            fresh_retune_config,
+            "best_of_search_fresh_retune",
+            metadata
+            | {
+                "final_evaluation_semantics": "retune_winning_search_space_generator",
+                "exact_schedule_reused": False,
+            },
+        )
+
+    return (
+        "saved-scheduled-module",
+        StrategyBuildConfig(
+            saved_scheduled_module_path=_optional_path(
+                best_result.get("scheduled_module_path")
+            ),
+            saved_scheduled_module_json_path=_optional_path(
+                best_result.get("scheduled_module_json_path")
+            ),
+        ),
+        "best_of_search_exact_winner",
+        metadata
+        | {
+            "final_evaluation_semantics": "reuse_search_time_scheduled_module",
+            "exact_schedule_reused": True,
+        },
+    )
+
+
+def _validate_level2_final_evaluation_policy(policy: str) -> None:
+    if policy not in LEVEL2_FINAL_EVALUATION_POLICIES:
+        choices = ", ".join(LEVEL2_FINAL_EVALUATION_POLICIES)
+        raise ValueError(
+            f"Unknown Level 2 final-evaluation policy {policy!r}. Available: {choices}"
+        )
+
+
+def _optional_path(value: Any) -> Path | None:
+    if value is None or value == "":
+        return None
+    return Path(str(value))
 
 
 def default_level2_search_space_path(target_name: str) -> Path:

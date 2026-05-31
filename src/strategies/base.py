@@ -28,6 +28,8 @@ class StrategyBuildConfig:
     post_optimization: bool = False
     generated_schedule_path: Path | None = None
     generated_search_space_path: Path | None = None
+    saved_scheduled_module_path: Path | None = None
+    saved_scheduled_module_json_path: Path | None = None
 
 
 @dataclass(frozen=True)

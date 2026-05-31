@@ -30,6 +30,11 @@ METHOD_NAMES = (
     "level2-search",
 )
 
+LEVEL2_FINAL_EVALUATION_POLICIES = (
+    "fresh-retune",
+    "exact-winner",
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -105,6 +110,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--search-min-repeat-ms", type=int, default=None)
     parser.add_argument("--search-max-trials-global", type=int, default=None)
     parser.add_argument("--search-num-trials-per-iter", type=int, default=None)
+    parser.add_argument(
+        "--level2-final-evaluation-policy",
+        choices=LEVEL2_FINAL_EVALUATION_POLICIES,
+        default="fresh-retune",
+    )
     parser.add_argument("--use-bedrock", action="store_true")
     parser.add_argument("--bedrock-model-id", default=None)
     parser.add_argument("--bedrock-region", default=None)
@@ -231,6 +241,7 @@ def _method_cases(args: argparse.Namespace) -> list[MethodCase]:
             search_min_repeat_ms=args.search_min_repeat_ms,
             search_max_trials_global=args.search_max_trials_global,
             search_num_trials_per_iter=args.search_num_trials_per_iter,
+            level2_final_evaluation_policy=args.level2_final_evaluation_policy,
             dry_run=not args.use_bedrock,
         )
         for name in names
