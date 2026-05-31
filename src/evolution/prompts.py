@@ -229,6 +229,7 @@ def strip_code_fences(text: str) -> str:
     if "<reasoning>" in stripped:
         stripped = stripped.split("<reasoning>", 1)[0].strip()
 
+    stripped = _strip_markdown_fence(stripped)
     code_starts = [
         stripped.find("from __future__"),
         stripped.find("import tvm"),
@@ -238,6 +239,11 @@ def strip_code_fences(text: str) -> str:
     if code_starts:
         stripped = stripped[min(code_starts) :].strip()
 
+    return _strip_markdown_fence(stripped)
+
+
+def _strip_markdown_fence(text: str) -> str:
+    stripped = text.strip()
     if not stripped.startswith("```"):
         return stripped
 
