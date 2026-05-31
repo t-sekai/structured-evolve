@@ -69,6 +69,9 @@ def mutation_prompt(
           original `ir_module` if a transformation fails.
         - If unsure, make a conservative mutation rather than invalid code.
         - The code may handle llvm and cuda differently.
+        - For cuda, bind all output spatial loops under blockIdx/threadIdx.
+          Leaving spatial loops unbound causes TVM memory verification failures.
+        - For padded Conv2D, inline the data_pad block before binding conv loops.
         - Do not import project-local modules.
         - Do not read or write files.
 
@@ -120,6 +123,10 @@ def search_space_mutation_prompt(
           get_sblock("{primary_block_name}", func_name="main").
         - Prefer 2-4 conservative design-space variants.
         - If a transformation may fail, catch the exception and skip that variant.
+        - For cuda, every variant must bind all output spatial loops under
+          blockIdx/threadIdx. Leaving spatial loops unbound causes TVM memory
+          verification failures.
+        - For padded Conv2D, inline the data_pad block before binding conv loops.
         - Do not import project-local modules.
         - Do not read or write files.
 

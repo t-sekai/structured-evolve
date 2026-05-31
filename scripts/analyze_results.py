@@ -47,11 +47,13 @@ def main() -> int:
         if df.empty:
             raise ValueError("No rows left after applying filters.")
 
-        summary = _summary_by_strategy(df)
+        benchmark_df = _final_benchmark_rows(df)
+
+        summary = _summary_by_strategy(benchmark_df)
         summary_path = output_dir / "summary_by_strategy.csv"
         summary.to_csv(summary_path, index=False)
 
-        speedups = _speedups(df, baseline_strategy=args.baseline_strategy)
+        speedups = _speedups(benchmark_df, baseline_strategy=args.baseline_strategy)
         speedups_path = output_dir / "speedups.csv"
         speedups.to_csv(speedups_path, index=False)
 
@@ -120,6 +122,16 @@ def _apply_filters(
     return filtered.copy()
 
 
+def _final_benchmark_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep final benchmark rows separate from search-time candidate evaluations."""
+    if "benchmark_group" not in df:
+        return df.copy()
+    final_rows = df[df["benchmark_group"] == "final_benchmark"].copy()
+    if final_rows.empty:
+        return df.copy()
+    return final_rows
+
+
 def _summary_by_strategy(df: pd.DataFrame) -> pd.DataFrame:
     group_cols = [
         column
@@ -136,6 +148,7 @@ def _summary_by_strategy(df: pd.DataFrame) -> pd.DataFrame:
         latency_ms_best=("latency_ms_mean", "min"),
         latency_ms_std=("latency_ms_mean", "std"),
         tuning_time_sec_mean=("tuning_time_sec", "mean"),
+        evolution_time_sec_mean=("evolution_time_sec", "mean"),
     )
     return summary.reset_index()
 
@@ -157,6 +170,8 @@ def _speedups(df: pd.DataFrame, *, baseline_strategy: str) -> pd.DataFrame:
         .agg(
             latency_ms_mean=("latency_ms_mean", "mean"),
             latency_ms_best=("latency_ms_mean", "min"),
+            tuning_time_sec_mean=("tuning_time_sec", "mean"),
+            evolution_time_sec_mean=("evolution_time_sec", "mean"),
             runs=("strategy", "size"),
         )
         .reset_index()

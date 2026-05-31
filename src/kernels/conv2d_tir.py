@@ -135,8 +135,39 @@ def _apply_llvm_schedule(ir_module: tvm.IRModule) -> tvm.IRModule:
 
 
 def _apply_cuda_schedule(ir_module: tvm.IRModule) -> tvm.IRModule:
-    """Keep the CUDA baseline as the canonical TE lowering."""
-    return ir_module
+    """Bind output tiles to CUDA blocks/threads so the baseline is buildable."""
+    sch = _create_schedule(ir_module)
+    try:
+        _inline_if_present(sch, "data_pad")
+        block = _get_block(sch, "conv", func_name="main")
+        loops = list(sch.get_loops(block))
+        if len(loops) < 7:
+            return ir_module
+
+        n, co, y, x = loops[:4]
+        reduction_loops = loops[4:]
+        co_block, co_thread = sch.split(co, factors=[None, 2])
+        y_block, y_thread = sch.split(y, factors=[None, 4])
+        x_block, x_thread = sch.split(x, factors=[None, 8])
+        block_z = sch.fuse(n, co_block)
+        sch.reorder(
+            block_z,
+            y_block,
+            x_block,
+            co_thread,
+            y_thread,
+            x_thread,
+            *reduction_loops,
+        )
+        sch.bind(block_z, "blockIdx.z")
+        sch.bind(y_block, "blockIdx.y")
+        sch.bind(x_block, "blockIdx.x")
+        sch.bind(co_thread, "threadIdx.z")
+        sch.bind(y_thread, "threadIdx.y")
+        sch.bind(x_thread, "threadIdx.x")
+        return sch.mod
+    except Exception:
+        return ir_module
 
 
 def make_conv2d_inputs(shape: Conv2DShape, rng: np.random.Generator) -> tuple[np.ndarray, ...]:
@@ -194,6 +225,14 @@ def _get_block(sch, name: str, *, func_name: str):
     if hasattr(sch, "get_block"):
         return sch.get_block(name, func_name=func_name)
     return sch.get_sblock(name, func_name=func_name)
+
+
+def _inline_if_present(sch, name: str) -> None:
+    try:
+        block = _get_block(sch, name, func_name="main")
+    except Exception:
+        return
+    sch.compute_inline(block)
 
 
 def _validate_shape(shape: Conv2DShape) -> None:

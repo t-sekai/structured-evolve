@@ -53,6 +53,14 @@ DEFAULT_LEVEL2_SEARCH_SPACE_PATHS = {
     },
 }
 
+IDENTITY_SCHEDULE_PATH = Path("generated/schedules/identity.py")
+
+DEFAULT_LEVEL1_SCHEDULE_PATHS = {
+    CONV2D_WORKLOAD: {
+        "cuda": Path("generated/schedules/cuda_conv2d.py"),
+    },
+}
+
 
 @dataclass(frozen=True)
 class MethodRunConfig:
@@ -134,6 +142,9 @@ def run_experiment_method(
 
 def _run_strategy_method(*, method: str, config: MethodRunConfig) -> dict[str, Any]:
     strategy = get_strategy(STRATEGY_METHODS[method])
+    generated_schedule_path = config.generated_schedule_path
+    if method == "level1-candidate":
+        generated_schedule_path = _level1_schedule_path(config)
     generated_search_space_path = config.generated_search_space_path
     if method == "level2-candidate" and generated_search_space_path is None:
         generated_search_space_path = default_level2_search_space_path(
@@ -145,6 +156,7 @@ def _run_strategy_method(*, method: str, config: MethodRunConfig) -> dict[str, A
         config=config,
         workload=workload,
         work_dir=config.tuning_work_dir,
+        generated_schedule_path=generated_schedule_path,
         generated_search_space_path=generated_search_space_path,
     )
     return run_workload_experiment(
@@ -171,6 +183,7 @@ def _strategy_build_config(
     config: MethodRunConfig,
     workload: Workload,
     work_dir: Path | None,
+    generated_schedule_path: Path | None,
     generated_search_space_path: Path | None,
 ) -> StrategyBuildConfig:
     """Translate method-level knobs into the strategy-level build config."""
@@ -184,7 +197,7 @@ def _strategy_build_config(
         cost_model=config.cost_model,
         task_scheduler=config.task_scheduler,
         post_optimization=config.post_optimization,
-        generated_schedule_path=config.generated_schedule_path,
+        generated_schedule_path=generated_schedule_path,
         generated_search_space_path=generated_search_space_path,
         workload_name=workload.name,
     )
@@ -196,7 +209,7 @@ def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
 
     start = perf_counter()
     history = run_schedule_evolution(
-        seed_candidate_path=config.level1_seed_candidate_path,
+        seed_candidate_path=_level1_seed_candidate_path(config),
         run_dir=run_dir,
         output_dir=config.output_dir,
         generations=config.generations,
@@ -317,6 +330,7 @@ def _run_evolved_best(
         config=config,
         workload=workload,
         work_dir=None,
+        generated_schedule_path=config.generated_schedule_path,
         generated_search_space_path=config.generated_search_space_path,
     )
     selection_role = "best_of_search"
@@ -445,6 +459,24 @@ def default_level2_search_space_path(
             f"Unsupported Level-2 seed for workload={workload_name!r}, "
             f"target={target_name!r}. Available workloads: {workloads}"
         ) from err
+
+
+def _level1_seed_candidate_path(config: MethodRunConfig) -> Path:
+    if config.level1_seed_candidate_path != IDENTITY_SCHEDULE_PATH:
+        return config.level1_seed_candidate_path
+    return _default_level1_schedule_path(config) or config.level1_seed_candidate_path
+
+
+def _level1_schedule_path(config: MethodRunConfig) -> Path | None:
+    if config.generated_schedule_path not in (None, IDENTITY_SCHEDULE_PATH):
+        return config.generated_schedule_path
+    return _default_level1_schedule_path(config) or config.generated_schedule_path
+
+
+def _default_level1_schedule_path(config: MethodRunConfig) -> Path | None:
+    return DEFAULT_LEVEL1_SCHEDULE_PATHS.get(config.workload_name, {}).get(
+        config.target_name
+    )
 
 
 def _workload(config: MethodRunConfig) -> Workload:

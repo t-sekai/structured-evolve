@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         help="Workload to benchmark.",
     )
     # Conv2D-specific parameters with defaults for a small convolution.
+    parser.add_argument(
+        "--conv2d-shape",
+        default=None,
+        help="Conv2D shape as B,CI,H,W,CO,KH,KW,stride,pad. Overrides split Conv2D flags.",
+    )
     parser.add_argument("--batch", type=int, default=1, help="Conv2D batch size.")
     parser.add_argument("--in-channels", type=int, default=3, help="Conv2D input channels.")
     parser.add_argument("--height", type=int, default=16, help="Conv2D input height.")
@@ -182,6 +187,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    _apply_conv2d_shape(args)
     positive_names = [
         "num_warmup",
         "num_trials",
@@ -296,7 +302,9 @@ def main() -> int:
                 enable_elite_carry_forward=args.enable_elite_carry_forward,
                 enable_diverse_inspiration=args.enable_diverse_inspiration,
                 dry_run=not args.use_bedrock,
-                bedrock_client=_bedrock_client(args) if args.use_bedrock else None,
+                bedrock_client=(
+                    _bedrock_client(args) if args.use_bedrock and _is_search_method(args.method) else None
+                ),
             ),
         )
         _print_result(result)
@@ -349,6 +357,10 @@ def _bedrock_client(args: argparse.Namespace):
     )
 
 
+def _is_search_method(method: str) -> bool:
+    return method in {"level1-search", "level2-search"}
+
+
 def _default_run_id(args: argparse.Namespace) -> str:
     if args.workload == "matmul":
         shape = f"M{args.M}_N{args.N}_K{args.K}"
@@ -375,6 +387,52 @@ def _workload_params(args: argparse.Namespace) -> dict[str, int]:
         "stride": args.stride,
         "padding": args.padding,
     }
+
+
+def _apply_conv2d_shape(args: argparse.Namespace) -> None:
+    if args.workload != "conv2d" or args.conv2d_shape is None:
+        return
+    (
+        args.batch,
+        args.in_channels,
+        args.height,
+        args.width,
+        args.out_channels,
+        args.kernel_h,
+        args.kernel_w,
+        args.stride,
+        args.padding,
+    ) = _parse_conv2d_shape(args.conv2d_shape)
+
+
+def _parse_conv2d_shape(value: str) -> tuple[int, int, int, int, int, int, int, int, int]:
+    normalized = value.lower().replace("x", ",")
+    pieces = [piece.strip() for piece in normalized.split(",") if piece.strip()]
+    if len(pieces) != 9:
+        raise ValueError(
+            "Conv2D shape must be B,CI,H,W,CO,KH,KW,stride,pad, "
+            f"got {value!r}"
+        )
+    try:
+        shape = tuple(int(piece) for piece in pieces)
+    except ValueError as err:
+        raise ValueError(f"Conv2D shape must contain integers, got {value!r}") from err
+    names = (
+        "batch",
+        "in_channels",
+        "height",
+        "width",
+        "out_channels",
+        "kernel_h",
+        "kernel_w",
+        "stride",
+    )
+    for name, dimension in zip(names, shape[:8], strict=True):
+        if dimension <= 0:
+            raise ValueError(f"{name} must be positive, got {dimension}")
+    if shape[8] < 0:
+        raise ValueError(f"padding must be non-negative, got {shape[8]}")
+    return shape
 
 
 def _parse_tuning_cores(value: str) -> int | str:
