@@ -10,6 +10,8 @@ from typing import Any, Mapping
 
 
 MAX_ERROR_CHARS = 240
+MAX_SURVIVOR_CHARS = 460
+MAX_SURVIVOR_DETAIL_CHARS = 220
 MAX_SCHEDULE_SUMMARY_CHARS = 1800
 MAX_SCHEDULE_SUMMARY_LINES = 36
 MAX_VARIANT_GUESS_CHARS = 900
@@ -36,10 +38,12 @@ def mutation_prompt(
     generation: int,
     candidate_index: int,
     parent_feedback: str = "",
+    survivor_feedback: str = "",
     workload_context: str | None = None,
     primary_block_name: str = "C",
 ) -> str:
     """Build a prompt asking the model to mutate one schedule candidate."""
+    survivor_block = _survivor_block(survivor_feedback)
     feedback_block = _feedback_block(parent_feedback)
     # The fallback is only for legacy matmul callers; normal runs pass the
     # workload-specific prompt_context from Workload.
@@ -72,6 +76,8 @@ def mutation_prompt(
         - Wrap schedule transformations in `try`/`except` and return the
           original `ir_module` if a transformation fails.
         - If unsure, make a conservative mutation rather than invalid code.
+        - Use the survivor summary as guidance, but mutate only the parent
+          candidate whose full code is provided below.
         - The code may handle llvm and cuda differently.
         - For cuda, bind all output spatial loops under blockIdx/threadIdx.
           Leaving spatial loops unbound causes TVM memory verification failures.
@@ -80,6 +86,8 @@ def mutation_prompt(
         - Do not read or write files.
 
         This is generation {generation}, candidate {candidate_index}.
+
+        {survivor_block}
 
         {feedback_block}
 
@@ -99,10 +107,12 @@ def search_space_mutation_prompt(
     generation: int,
     candidate_index: int,
     parent_feedback: str = "",
+    survivor_feedback: str = "",
     workload_context: str | None = None,
     primary_block_name: str = "C",
 ) -> str:
     """Build a prompt asking the model to mutate one search-space candidate."""
+    survivor_block = _survivor_block(survivor_feedback)
     feedback_block = _feedback_block(parent_feedback)
     # The fallback is only for legacy matmul callers; normal runs pass the
     # workload-specific prompt_context from Workload.
@@ -128,8 +138,9 @@ def search_space_mutation_prompt(
         - Prefer 2-4 conservative design-space variants.
         - Label each variant with a short `# Variant N: ...` comment that names
           the tile sizes and key transforms.
-        - Use parent feedback to preserve transforms that appear in the selected
-          schedule, then add one or two conservative alternatives.
+        - Use the survivor summary and parent feedback to preserve transforms
+          that appear in selected schedules, then add one or two conservative
+          alternatives.
         - If a transformation may fail, catch the exception and skip that variant.
         - For cuda, every variant must bind all output spatial loops under
           blockIdx/threadIdx. Leaving spatial loops unbound causes TVM memory
@@ -140,12 +151,37 @@ def search_space_mutation_prompt(
 
         This is generation {generation}, candidate {candidate_index}.
 
+        {survivor_block}
+
         {feedback_block}
 
         Parent candidate:
         {parent_code}
         """
     ).strip()
+
+
+def survivor_summary(
+    survivor_rows: list[Mapping[str, Any]],
+    *,
+    include_level2_artifacts: bool = False,
+) -> str:
+    """Return a concise prompt-facing summary of all survivor candidates."""
+    if not survivor_rows:
+        return ""
+    lines = [
+        "Top candidates selected as this generation's survivor pool. "
+        "Use these as compact design guidance; full code is shown only for the assigned parent."
+    ]
+    for fallback_rank, row in enumerate(survivor_rows, start=1):
+        lines.append(
+            _survivor_summary_line(
+                row,
+                fallback_rank=fallback_rank,
+                include_level2_artifacts=include_level2_artifacts,
+            )
+        )
+    return "\n".join(lines)
 
 
 def evaluator_feedback(
@@ -234,10 +270,127 @@ def evaluator_feedback(
     return "\n".join(lines)
 
 
+def _survivor_summary_line(
+    row: Mapping[str, Any],
+    *,
+    fallback_rank: int,
+    include_level2_artifacts: bool,
+) -> str:
+    candidate = row.get("candidate", {})
+    result = row.get("result", {})
+    fitness = row.get("fitness", {})
+    rank = row.get("generation_rank") or fallback_rank
+    status = _candidate_status(result)
+    pieces = [
+        f"rank {rank}",
+        f"id={_display(candidate.get('candidate_id'))}",
+        f"score={_compact_value(fitness.get('score'))}",
+        f"latency_ms={_compact_value(result.get('latency_ms_mean'))}",
+        f"status={status}",
+    ]
+    if candidate.get("origin"):
+        pieces.append(f"origin={candidate.get('origin')}")
+    if candidate.get("parent_id"):
+        pieces.append(f"parent={candidate.get('parent_id')}")
+    details: list[str] = []
+    error = _concise_error(result)
+    if error != "(none)":
+        details.append(f"error={error}")
+    if include_level2_artifacts:
+        schedule_features = _schedule_feature_info(result.get("scheduled_module_path"))
+        details.append(f"selected={_compact_schedule_features(schedule_features.features)}")
+        record = _compact_tuning_record(result.get("metaschedule_database_tuning_record"))
+        if record:
+            details.append(record)
+        variant = _compact_parent_variant_guess(
+            candidate.get("path"),
+            selected_features=schedule_features.features,
+        )
+        if variant:
+            details.append(variant)
+    if details:
+        pieces.append("; ".join(_truncate(detail, MAX_SURVIVOR_DETAIL_CHARS) for detail in details))
+    return "- " + _truncate(" | ".join(pieces), MAX_SURVIVOR_CHARS)
+
+
+def _candidate_status(result: Mapping[str, Any]) -> str:
+    if result.get("compile_passed") and result.get("correctness_passed"):
+        return "valid"
+    if result.get("compile_passed"):
+        return "compile-only"
+    if result.get("cascade_rejected"):
+        return f"rejected:{_display(result.get('rejection_stage'))}"
+    return "invalid"
+
+
+def _compact_value(value: Any) -> str:
+    if value is None or value == "":
+        return "NA"
+    if isinstance(value, (int, float)):
+        return f"{float(value):.6g}"
+    return str(value)
+
+
+def _compact_schedule_features(features: Mapping[str, Any]) -> str:
+    if not features:
+        return "unavailable"
+    pieces = []
+    tiles = features.get("tiles") or {}
+    if tiles:
+        pieces.append(f"tiles({_format_tiles(tiles)})")
+    if features.get("has_fused_parallel"):
+        pieces.append("fused_parallel")
+    if features.get("has_parallel"):
+        pieces.append("parallel")
+    if features.get("has_vectorize"):
+        pieces.append("vectorize")
+    if features.get("has_unroll"):
+        pieces.append("unroll")
+    return ", ".join(pieces) if pieces else "no inferred schedule features"
+
+
+def _compact_tuning_record(path_value: Any) -> str:
+    summary = _tuning_record_summary(path_value)
+    if summary.startswith("(unavailable"):
+        return ""
+    for line in summary.splitlines():
+        stripped = line.removeprefix("- ").strip()
+        if stripped.startswith("best_record_trace:"):
+            return "best_trace=" + stripped.removeprefix("best_record_trace:").strip()
+    return ""
+
+
+def _compact_parent_variant_guess(
+    path_value: Any,
+    *,
+    selected_features: Mapping[str, Any],
+) -> str:
+    guess = _parent_variant_guess(path_value, selected_features=selected_features)
+    if guess.startswith("(unavailable"):
+        return ""
+    useful_lines = []
+    for line in guess.splitlines():
+        stripped = line.removeprefix("- ").strip()
+        if stripped.startswith("best_match:"):
+            useful_lines.append("variant=" + stripped.removeprefix("best_match:").strip())
+        elif stripped.startswith("matched_features:"):
+            useful_lines.append("matches=" + stripped.removeprefix("matched_features:").strip())
+    if not useful_lines:
+        return ""
+    return "; ".join(useful_lines)
+
+
+def _survivor_block(survivor_feedback: str) -> str:
+    if not survivor_feedback:
+        return ""
+    return "Survivor summary:\n" + survivor_feedback
+
+
 def _feedback_block(parent_feedback: str) -> str:
     if not parent_feedback:
         return ""
-    return "Parent evaluator feedback:\n" + parent_feedback
+    return "Assigned parent evaluator feedback:\n" + parent_feedback
+
 
 
 def _selected_schedule_summary(path_value: Any) -> str:

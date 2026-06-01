@@ -18,6 +18,7 @@ from src.evolution.prompts import (
     evaluator_feedback,
     mutation_prompt,
     strip_code_fences,
+    survivor_summary,
 )
 from src.evolution.selection import annotate_source, plan_metadata, plan_next_generation
 from src.kernels.workloads import Workload, make_matmul_workload
@@ -331,6 +332,13 @@ def _make_next_generation(
             **plan_metadata(plan),
         },
     )
+    survivor_feedback = (
+        survivor_summary(
+            evaluated[: min(survivors, len(evaluated))],
+        )
+        if include_evaluator_feedback
+        else ""
+    )
     next_candidates: list[Candidate] = []
     for index, elite in enumerate(plan.elites):
         parent = elite["candidate"]
@@ -370,6 +378,7 @@ def _make_next_generation(
             parent_feedback=(
                 evaluator_feedback(parent_row) if include_evaluator_feedback else ""
             ),
+            survivor_feedback=survivor_feedback,
         )
         prompt_path.write_text(prompt + "\n", encoding="utf-8")
 
