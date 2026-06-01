@@ -147,20 +147,90 @@ class BedrockClient:
 
     def generate(self, *, system_prompt: str, user_prompt: str) -> str:
         """Generate text using a few Bedrock-compatible request shapes."""
-        body = _converse_like_body(
+        body = _request_body(
+            model_id=self.config.model_id,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
         )
-        response = self._client.invoke_model(
+        try:
+            response = self._invoke_model(body)
+        except Exception as err:
+            if not _should_retry_with_anthropic_messages(err, body):
+                raise
+            response = self._invoke_model(
+                _anthropic_messages_body(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=self.config.temperature,
+                    max_tokens=self.config.max_tokens,
+                )
+            )
+        payload = json.loads(response["body"].read())
+        return _extract_text(payload)
+
+    def _invoke_model(self, body: dict[str, Any]):
+        return self._client.invoke_model(
             modelId=self.config.model_id,
             body=json.dumps(body),
             contentType="application/json",
             accept="application/json",
         )
-        payload = json.loads(response["body"].read())
-        return _extract_text(payload)
+
+
+def _request_body(
+    *,
+    model_id: str,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    max_tokens: int,
+) -> dict[str, Any]:
+    if "anthropic.claude" in model_id:
+        return _anthropic_messages_body(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    return _converse_like_body(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
+def _anthropic_messages_body(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    max_tokens: int,
+) -> dict[str, Any]:
+    return {
+        "anthropic_version": "bedrock-2023-05-31",
+        "system": system_prompt,
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": user_prompt}],
+            }
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+
+def _should_retry_with_anthropic_messages(err: Exception, body: dict[str, Any]) -> bool:
+    if "anthropic_version" in body:
+        return False
+    message = str(err)
+    return (
+        'Unexpected role "system"' in message
+        and "top-level `system` parameter" in message
+    )
 
 
 def _converse_like_body(
