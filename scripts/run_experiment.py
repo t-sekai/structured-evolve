@@ -125,7 +125,10 @@ def parse_args() -> argparse.Namespace:
         "--evolution-run-dir",
         type=Path,
         default=None,
-        help="Explicit fresh directory for evolution artifacts. Non-empty directories are rejected.",
+        help=(
+            "Preferred directory for evolution artifacts. If it already contains "
+            "artifacts, a unique sibling is reserved to avoid mixing batch runs."
+        ),
     )
     parser.add_argument(
         "--level1-seed-candidate-path",

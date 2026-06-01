@@ -547,7 +547,7 @@ def _selection_role(level: str) -> str:
 
 def _evolution_run_dir(config: MethodRunConfig, method: str) -> Path:
     if config.evolution_run_dir is not None:
-        return _validate_explicit_evolution_run_dir(config.evolution_run_dir)
+        return _reserve_explicit_evolution_run_dir(config.evolution_run_dir)
     experiment_id = _safe_path_component(config.experiment_id or default_experiment_id(method))
     run_id = config.run_id or default_experiment_id(method)
     run_name = f"{_safe_path_component(run_id)}__{_evolution_config_slug(config)}"
@@ -555,13 +555,15 @@ def _evolution_run_dir(config: MethodRunConfig, method: str) -> Path:
     return _reserve_unique_run_dir(base_dir)
 
 
-def _validate_explicit_evolution_run_dir(path: Path) -> Path:
-    if path.exists() and any(path.iterdir()):
-        raise FileExistsError(
-            f"--evolution-run-dir points to a non-empty directory: {path}. "
-            "Choose a fresh directory so this run does not mix with prior artifacts."
-        )
-    return path
+def _reserve_explicit_evolution_run_dir(path: Path) -> Path:
+    """Reserve a fresh explicit artifact directory without mixing batch runs."""
+    try:
+        path.mkdir(parents=True, exist_ok=False)
+        return path
+    except FileExistsError:
+        if not any(path.iterdir()):
+            return path
+    return _reserve_unique_run_dir(path)
 
 
 def _reserve_unique_run_dir(base_dir: Path) -> Path:
