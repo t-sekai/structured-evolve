@@ -146,7 +146,10 @@ def _empty(shape: tuple[int, ...], *, dtype: str, device: tvm.runtime.Device) ->
 def _make_target(target_name: str) -> tvm.target.Target:
     host = _make_host_target()
     if target_name == "cuda":
-        device_target = tvm.target.Target.from_device(tvm.cuda(0))
+        if hasattr(tvm.target.Target, "from_device"):
+            device_target = tvm.target.Target.from_device(tvm.cuda(0))
+        else:
+            device_target = tvm.target.Target("cuda")
         return tvm.target.Target(device_target, host=host)
     if target_name == "llvm":
         return host

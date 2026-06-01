@@ -1,8 +1,10 @@
-numpy>=1.23
+numpy>=1.23,<2
 pandas
 matplotlib
-xgboost
+xgboost>=1.1.0,<1.6.0
 boto3
+tomli; python_version < "3.11"
+setuptools<81
 
 # TVM is expected to come from your local build environment.
 # Verify it with: python -c "import tvm; print(tvm.__version__)"

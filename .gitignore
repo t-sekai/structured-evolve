@@ -11,6 +11,7 @@ htmlcov/
 
 # Local environments
 .venv/
+tvm-build-venv/
 venv/
 env/
 .env
@@ -23,6 +24,7 @@ config/api_keys.toml
 *.key
 
 # TVM source/build artifacts
+.tvm_test_data/
 third_party/
 tvm/
 build/

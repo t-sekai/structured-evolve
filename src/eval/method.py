@@ -56,6 +56,9 @@ DEFAULT_LEVEL2_SEARCH_SPACE_PATHS = {
 IDENTITY_SCHEDULE_PATH = Path("generated/schedules/identity.py")
 
 DEFAULT_LEVEL1_SCHEDULE_PATHS = {
+    MATMUL_WORKLOAD: {
+        "cuda": Path("generated/schedules/cuda_matmul.py"),
+    },
     CONV2D_WORKLOAD: {
         "cuda": Path("generated/schedules/cuda_conv2d.py"),
     },

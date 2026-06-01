@@ -110,6 +110,9 @@ def _normalized_candidate_source(path: Path) -> Path:
 
 def _install_schedule_compat() -> None:
     """Support common upstream TVM schedule spellings in generated candidates."""
+    if not hasattr(tvm, "s_tir") and hasattr(tvm, "tir") and hasattr(tvm.tir, "Schedule"):
+        tvm.s_tir = tvm.tir
+        sys.modules.setdefault("tvm.s_tir", tvm.tir)
     if not hasattr(tvm, "s_tir") or not hasattr(tvm.s_tir, "Schedule"):
         return
 
@@ -125,6 +128,12 @@ def _install_schedule_compat() -> None:
             return self.get_sblock(name, func_name=func_name or "main")
 
         schedule_cls.get_block = get_block
+    if not hasattr(schedule_cls, "get_sblock") and hasattr(schedule_cls, "get_block"):
+
+        def get_sblock(self, name: str, func_name: str | None = None):
+            return self.get_block(name, func_name=func_name or "main")
+
+        schedule_cls.get_sblock = get_sblock
 
     original_split = getattr(schedule_cls, "split", None)
     if original_split is not None and not getattr(original_split, "_accepts_factor", False):

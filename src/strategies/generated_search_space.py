@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import importlib.util
 from pathlib import Path
 from time import perf_counter
@@ -74,11 +75,13 @@ class GeneratedSearchSpaceStrategy:
             "seed": config.seed,
             "num_tuning_cores": config.num_tuning_cores,
             "measure_callbacks": [AddToDatabase(), UpdateCostModel()],
-            "post_optimization": config.post_optimization,
             "space": space,
             "builder": LocalBuilder(max_workers=1, timeout_sec=10.0),
             "runner": LocalRunner(timeout_sec=10.0),
         }
+        supports_post_optimization = "post_optimization" in inspect.signature(tune_tir).parameters
+        if supports_post_optimization:
+            tune_kwargs["post_optimization"] = config.post_optimization
         if config.max_trials_per_task is not None:
             tune_kwargs["max_trials_per_task"] = config.max_trials_per_task
 
@@ -130,6 +133,7 @@ class GeneratedSearchSpaceStrategy:
                 "seed": config.seed,
                 "num_tuning_cores": config.num_tuning_cores,
                 "post_optimization": config.post_optimization,
+                "post_optimization_supported": supports_post_optimization,
                 "target_for_tuning": str(target),
                 "target_name": target_name,
                 "workload_name": workload.name,
