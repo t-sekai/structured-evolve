@@ -56,7 +56,7 @@ def run_search_space_evolution(
     include_evaluator_feedback: bool = True,
     enable_rejection_cascade: bool = True,
     enable_elite_carry_forward: bool = False,
-    enable_diverse_inspiration: bool = False,
+    enable_diverse_inspiration: bool = True,
 ) -> list[dict[str, Any]]:
     """Run an OpenEvolve-style loop over MetaSchedule search-space files."""
     # M/N/K are kept for older matmul CLI callers; workload carries the actual

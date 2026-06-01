@@ -50,7 +50,7 @@ def run_schedule_evolution(
     include_evaluator_feedback: bool = True,
     enable_rejection_cascade: bool = True,
     enable_elite_carry_forward: bool = False,
-    enable_diverse_inspiration: bool = False,
+    enable_diverse_inspiration: bool = True,
 ) -> list[dict[str, Any]]:
     """Run a small OpenEvolve-style loop over schedule candidate files."""
     # M/N/K are kept for older matmul CLI callers; workload carries the actual

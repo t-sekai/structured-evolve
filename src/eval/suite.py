@@ -90,7 +90,7 @@ class MethodCase:
     include_evaluator_feedback: bool = True
     enable_rejection_cascade: bool = True
     enable_elite_carry_forward: bool = False
-    enable_diverse_inspiration: bool = False
+    enable_diverse_inspiration: bool = True
     dry_run: bool = True
 
 

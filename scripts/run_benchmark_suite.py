@@ -149,9 +149,11 @@ def parse_args() -> argparse.Namespace:
         help="Carry elite survivors directly into the next generation.",
     )
     parser.add_argument(
-        "--enable-diverse-inspiration",
-        action="store_true",
-        help="Use one valid non-elite diverse inspiration source when available.",
+        "--disable-diverse-inspiration",
+        dest="enable_diverse_inspiration",
+        action="store_false",
+        default=True,
+        help="Ablate the valid non-elite diverse inspiration source.",
     )
     parser.add_argument("--use-bedrock", action="store_true")
     parser.add_argument("--bedrock-model-id", default=None)

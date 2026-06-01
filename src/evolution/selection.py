@@ -30,7 +30,7 @@ def plan_next_generation(
     survivors: int,
     population_size: int,
     enable_elite_carry_forward: bool = False,
-    enable_diverse_inspiration: bool = False,
+    enable_diverse_inspiration: bool = True,
 ) -> GenerationPlan:
     """Choose carried-forward elites and mutation sources for one generation."""
     if not evaluated:
