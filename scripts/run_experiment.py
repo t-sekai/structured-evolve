@@ -121,7 +121,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-tuning-cores", default="physical")
     parser.add_argument("--post-optimization", action="store_true")
 
-    parser.add_argument("--evolution-run-dir", type=Path, default=None)
+    parser.add_argument(
+        "--evolution-run-dir",
+        type=Path,
+        default=None,
+        help="Explicit fresh directory for evolution artifacts. Non-empty directories are rejected.",
+    )
     parser.add_argument(
         "--level1-seed-candidate-path",
         type=Path,
@@ -336,13 +341,15 @@ def _print_result(result: dict) -> None:
         print(f"latency_ms_std: {result['latency_ms_std']:.6f}")
         if result.get("tuning_time_sec") is not None:
             print(f"tuning_time_sec: {result['tuning_time_sec']:.6f}")
-        if result.get("evolution_time_sec") is not None:
-            print(f"evolution_time_sec: {result['evolution_time_sec']:.6f}")
     else:
         print(f"error_type: {result['error_type']}")
         print(f"error_message: {result['error_message']}")
+    if result.get("evolution_time_sec") is not None:
+        print(f"evolution_time_sec: {result['evolution_time_sec']:.6f}")
     if result.get("best_candidate_path"):
         print(f"best_candidate_path: {result['best_candidate_path']}")
+    if result.get("evolution_run_dir"):
+        print(f"evolution_run_dir: {result['evolution_run_dir']}")
     print(f"json_result: {result['json_result']}")
     print(f"csv_result: {result['csv_result']}")
 

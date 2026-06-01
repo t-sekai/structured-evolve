@@ -294,6 +294,12 @@ def _write_summary(path: Path, results: list[dict[str, Any]]) -> None:
         "benchmark_invocations",
         "min_repeat_ms",
         "tuning_time_sec",
+        "evolution_time_sec",
+        "evolution_run_dir",
+        "evolution_history_path",
+        "evolution_best_path",
+        "best_candidate_path",
+        "best_fitness_score",
         "json_result",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)

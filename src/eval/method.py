@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -545,9 +547,88 @@ def _selection_role(level: str) -> str:
 
 def _evolution_run_dir(config: MethodRunConfig, method: str) -> Path:
     if config.evolution_run_dir is not None:
-        return config.evolution_run_dir
+        return _validate_explicit_evolution_run_dir(config.evolution_run_dir)
+    experiment_id = _safe_path_component(config.experiment_id or default_experiment_id(method))
     run_id = config.run_id or default_experiment_id(method)
-    return config.output_dir / "evolution_runs" / method / run_id
+    run_name = f"{_safe_path_component(run_id)}__{_evolution_config_slug(config)}"
+    base_dir = config.output_dir / "evolution_runs" / method / experiment_id / run_name
+    return _reserve_unique_run_dir(base_dir)
+
+
+def _validate_explicit_evolution_run_dir(path: Path) -> Path:
+    if path.exists() and any(path.iterdir()):
+        raise FileExistsError(
+            f"--evolution-run-dir points to a non-empty directory: {path}. "
+            "Choose a fresh directory so this run does not mix with prior artifacts."
+        )
+    return path
+
+
+def _reserve_unique_run_dir(base_dir: Path) -> Path:
+    try:
+        base_dir.mkdir(parents=True, exist_ok=False)
+        return base_dir
+    except FileExistsError:
+        pass
+    for index in range(1, 1000):
+        candidate = base_dir.with_name(f"{base_dir.name}__{index:03d}")
+        try:
+            candidate.mkdir(parents=True, exist_ok=False)
+            return candidate
+        except FileExistsError:
+            pass
+    raise RuntimeError(f"Could not find a fresh evolution run directory near {base_dir}")
+
+
+def _safe_path_component(value: Any) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._=-]+", "_", str(value)).strip("._")
+    return safe or "run"
+
+
+def _evolution_config_slug(config: MethodRunConfig) -> str:
+    max_trials = _search_value(config.search_max_trials_global, config.max_trials_global)
+    trials_per_iter = _search_value(
+        config.search_num_trials_per_iter,
+        config.num_trials_per_iter,
+    )
+    parts = [
+        f"g{config.generations}",
+        f"p{config.population_size}",
+        f"s{config.survivors}",
+        f"mg{max_trials}",
+        f"it{trials_per_iter}",
+        f"cm{config.cost_model}",
+        f"ts{config.task_scheduler}",
+        f"seed{config.seed}",
+        f"fb{int(config.include_evaluator_feedback)}",
+        f"rc{int(config.enable_rejection_cascade)}",
+        f"elite{int(config.enable_elite_carry_forward)}",
+        f"div{int(config.enable_diverse_inspiration)}",
+        f"policy{config.level2_final_evaluation_policy}",
+    ]
+    model_id = _bedrock_model_id(config)
+    if model_id:
+        digest = hashlib.sha1(model_id.encode("utf-8")).hexdigest()[:8]
+        parts.append(f"model{_short_path_component(model_id)}-{digest}")
+    if config.dry_run:
+        parts.append("dry")
+    return _safe_path_component("__".join(parts))
+
+
+def _bedrock_model_id(config: MethodRunConfig) -> str | None:
+    client_config = getattr(config.bedrock_client, "config", None)
+    model_id = getattr(client_config, "model_id", None)
+    if isinstance(model_id, str) and model_id:
+        return model_id
+    return None
+
+
+def _short_path_component(value: str, max_length: int = 48) -> str:
+    token = value.rsplit("/", 1)[-1].rsplit(":", 1)[0]
+    safe = _safe_path_component(token)
+    if len(safe) <= max_length:
+        return safe
+    return safe[:max_length].rstrip("._=-") or "value"
 
 
 def _best_or_raise(history: list[dict[str, Any]]) -> dict[str, Any]:
