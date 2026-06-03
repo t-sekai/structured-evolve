@@ -52,6 +52,7 @@ def run_schedule_evolution(
     enable_rejection_cascade: bool = True,
     enable_elite_carry_forward: bool = False,
     enable_diverse_inspiration: bool = True,
+    prompt_style: str = "standard",
 ) -> list[dict[str, Any]]:
     """Run a small OpenEvolve-style loop over schedule candidate files."""
     # M/N/K are kept for older matmul CLI callers; workload carries the actual
@@ -107,6 +108,7 @@ def run_schedule_evolution(
                 enable_rejection_cascade=enable_rejection_cascade,
                 enable_elite_carry_forward=enable_elite_carry_forward,
                 enable_diverse_inspiration=enable_diverse_inspiration,
+                prompt_style=prompt_style,
             ),
         },
     )
@@ -147,6 +149,7 @@ def run_schedule_evolution(
                 include_evaluator_feedback=include_evaluator_feedback,
                 enable_elite_carry_forward=enable_elite_carry_forward,
                 enable_diverse_inspiration=enable_diverse_inspiration,
+                prompt_style=prompt_style,
             )
             for candidate in active
         ]
@@ -176,6 +179,7 @@ def run_schedule_evolution(
             enable_rejection_cascade=enable_rejection_cascade,
             enable_elite_carry_forward=enable_elite_carry_forward,
             enable_diverse_inspiration=enable_diverse_inspiration,
+            prompt_style=prompt_style,
         )
 
     history.sort(key=lambda row: row["fitness"]["score"], reverse=True)
@@ -208,6 +212,7 @@ def _evaluate_candidate(
     include_evaluator_feedback: bool,
     enable_elite_carry_forward: bool,
     enable_diverse_inspiration: bool,
+    prompt_style: str,
 ) -> dict[str, Any]:
     metadata = {
         **_candidate_metadata(
@@ -225,6 +230,7 @@ def _evaluate_candidate(
             enable_rejection_cascade=enable_rejection_cascade,
             enable_elite_carry_forward=enable_elite_carry_forward,
             enable_diverse_inspiration=enable_diverse_inspiration,
+            prompt_style=prompt_style,
         ),
     }
     if enable_rejection_cascade:
@@ -310,6 +316,7 @@ def _make_next_generation(
     enable_rejection_cascade: bool,
     enable_elite_carry_forward: bool,
     enable_diverse_inspiration: bool,
+    prompt_style: str,
 ) -> list[Candidate]:
     generation_dir.mkdir(parents=True, exist_ok=True)
     plan = plan_next_generation(
@@ -328,6 +335,7 @@ def _make_next_generation(
                 enable_rejection_cascade=enable_rejection_cascade,
                 enable_elite_carry_forward=enable_elite_carry_forward,
                 enable_diverse_inspiration=enable_diverse_inspiration,
+                prompt_style=prompt_style,
             ),
             **plan_metadata(plan),
         },
@@ -379,6 +387,7 @@ def _make_next_generation(
                 evaluator_feedback(parent_row) if include_evaluator_feedback else ""
             ),
             survivor_feedback=survivor_feedback,
+            prompt_style=prompt_style,
         )
         prompt_path.write_text(prompt + "\n", encoding="utf-8")
 
@@ -485,12 +494,14 @@ def _ablation_metadata(
     enable_rejection_cascade: bool,
     enable_elite_carry_forward: bool,
     enable_diverse_inspiration: bool,
+    prompt_style: str,
 ) -> dict[str, Any]:
     return {
         "evaluator_feedback_enabled": include_evaluator_feedback,
         "rejection_cascade_enabled": enable_rejection_cascade,
         "elite_carry_forward_enabled": enable_elite_carry_forward,
         "diverse_inspiration_enabled": enable_diverse_inspiration,
+        "prompt_style": prompt_style,
     }
 
 

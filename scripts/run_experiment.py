@@ -182,6 +182,12 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Ablate the valid non-elite diverse inspiration source.",
     )
+    parser.add_argument(
+        "--prompt-style",
+        choices=("standard", "creative"),
+        default="standard",
+        help="Mutation prompt style for search methods.",
+    )
 
     parser.add_argument(
         "--use-bedrock",
@@ -311,6 +317,7 @@ def main() -> int:
                 enable_rejection_cascade=not args.disable_rejection_cascade,
                 enable_elite_carry_forward=args.enable_elite_carry_forward,
                 enable_diverse_inspiration=args.enable_diverse_inspiration,
+                prompt_style=args.prompt_style,
                 dry_run=not args.use_bedrock,
                 bedrock_client=(
                     _bedrock_client(args) if args.use_bedrock and _is_search_method(args.method) else None

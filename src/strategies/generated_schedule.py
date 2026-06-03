@@ -56,6 +56,14 @@ class GeneratedScheduleStrategy:
                 f"{type(scheduled_module).__name__}."
             )
 
+        scheduled_module_path = candidate_path.with_suffix(".scheduled_module.txt")
+        scheduled_module_path.write_text(str(scheduled_module), encoding="utf-8")
+        scheduled_module_json_path = candidate_path.with_suffix(".scheduled_module.json")
+        scheduled_module_json_path.write_text(
+            tvm.ir.save_json(scheduled_module),
+            encoding="utf-8",
+        )
+
         lib = tvm.build(scheduled_module, target=target)
         return StrategyBuildResult(
             lib=lib,
@@ -65,6 +73,8 @@ class GeneratedScheduleStrategy:
                 "generated_schedule_path": str(candidate_path),
                 "generated_schedule_sha256": _sha256(candidate_path),
                 "generated_schedule_apply_fn": APPLY_FN_NAME,
+                "scheduled_module_path": str(scheduled_module_path),
+                "scheduled_module_json_path": str(scheduled_module_json_path),
                 "tuning_time_sec": 0.0,
                 "max_trials_global": 0,
                 "num_trials_per_iter": 0,

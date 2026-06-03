@@ -41,10 +41,16 @@ def mutation_prompt(
     survivor_feedback: str = "",
     workload_context: str | None = None,
     primary_block_name: str = "C",
+    prompt_style: str = "standard",
 ) -> str:
     """Build a prompt asking the model to mutate one schedule candidate."""
     survivor_block = _survivor_block(survivor_feedback)
     feedback_block = _feedback_block(parent_feedback)
+    creative_block = _creative_block(prompt_style, level="schedule")
+    target_requirements = indent(
+        _schedule_target_requirements(target_name, primary_block_name),
+        "        ",
+    )
     # The fallback is only for legacy matmul callers; normal runs pass the
     # workload-specific prompt_context from Workload.
     workload_context = workload_context or (
@@ -61,7 +67,8 @@ def mutation_prompt(
         - Define exactly this callable:
           def apply_schedule(ir_module: tvm.IRModule, target_name: str) -> tvm.IRModule:
         - The function must return a tvm.IRModule.
-        - Prefer simple, valid TVM schedule transformations.
+        - Prefer ambitious but legal TVM schedule transformations over tiny
+          no-op mutations.
         - This TVM build exposes tvm.s_tir.Schedule, not tvm.tir.Schedule.
         - Do not write `from tvm import tir` or `import tvm.tir`.
         - Use `sch = tvm.s_tir.Schedule(ir_module)` for schedule mutations.
@@ -70,20 +77,19 @@ def mutation_prompt(
         - Use `sch.split(loop, factors=[None, factor])`, not
           `sch.split(loop, factor=factor)`.
         - Return `sch.mod`, not `sch.mod()`.
-        - For llvm, apply at most one `sch.parallel(...)` and at most one
-          `sch.vectorize(...)`.
         - Do not pass a `factor=` argument to `sch.vectorize(...)`.
-        - Wrap schedule transformations in `try`/`except` and return the
-          original `ir_module` if a transformation fails.
-        - If unsure, make a conservative mutation rather than invalid code.
+        - Use bounded `try`/`except` around risky transform groups and return
+          the original `ir_module` only if both the ambitious path and a simpler
+          fallback fail.
         - Use the survivor summary as guidance, but mutate only the parent
           candidate whose full code is provided below.
-        - The code may handle llvm and cuda differently.
-        - For cuda, bind all output spatial loops under blockIdx/threadIdx.
-          Leaving spatial loops unbound causes TVM memory verification failures.
-        - For padded Conv2D, inline the data_pad block before binding conv loops.
         - Do not import project-local modules.
         - Do not read or write files.
+
+        Target-specific requirements:
+{target_requirements}
+
+        {creative_block}
 
         This is generation {generation}, candidate {candidate_index}.
 
@@ -110,10 +116,16 @@ def search_space_mutation_prompt(
     survivor_feedback: str = "",
     workload_context: str | None = None,
     primary_block_name: str = "C",
+    prompt_style: str = "standard",
 ) -> str:
     """Build a prompt asking the model to mutate one search-space candidate."""
     survivor_block = _survivor_block(survivor_feedback)
     feedback_block = _feedback_block(parent_feedback)
+    creative_block = _creative_block(prompt_style, level="search_space")
+    target_requirements = indent(
+        _search_space_target_requirements(target_name, primary_block_name),
+        "        ",
+    )
     # The fallback is only for legacy matmul callers; normal runs pass the
     # workload-specific prompt_context from Workload.
     workload_context = workload_context or (
@@ -135,19 +147,21 @@ def search_space_mutation_prompt(
         - Use `sch.copy()` before mutating alternative schedules.
         - The primary compute block is named "{primary_block_name}"; use
           get_sblock("{primary_block_name}", func_name="main").
-        - Prefer 2-4 conservative design-space variants.
+        - Prefer 3-6 ambitious but legal design-space variants plus one simple
+          fallback variant when useful.
         - Label each variant with a short `# Variant N: ...` comment that names
           the tile sizes and key transforms.
         - Use the survivor summary and parent feedback to preserve transforms
-          that appear in selected schedules, then add one or two conservative
-          alternatives.
+          that appear in selected schedules, then add alternatives that explore
+          meaningful tile/cache/binding choices.
         - If a transformation may fail, catch the exception and skip that variant.
-        - For cuda, every variant must bind all output spatial loops under
-          blockIdx/threadIdx. Leaving spatial loops unbound causes TVM memory
-          verification failures.
-        - For padded Conv2D, inline the data_pad block before binding conv loops.
         - Do not import project-local modules.
         - Do not read or write files.
+
+        Target-specific requirements:
+{target_requirements}
+
+        {creative_block}
 
         This is generation {generation}, candidate {candidate_index}.
 
@@ -159,6 +173,106 @@ def search_space_mutation_prompt(
         {parent_code}
         """
     ).strip()
+
+
+def _schedule_target_requirements(target_name: str, primary_block_name: str) -> str:
+    """Return target-specific prompt constraints for direct schedule candidates."""
+    if target_name == "cuda":
+        return dedent(
+            f"""
+            - Write a CUDA-only candidate. Start with
+              `if target_name != "cuda": return ir_module`.
+            - Do not include a CPU-only `else` schedule branch.
+            - Do not use CPU-oriented `sch.parallel(...)` in the CUDA path.
+            - Bind all output spatial loops under `blockIdx`/`threadIdx`;
+              unbound CUDA spatial loops cause TVM memory verification failures.
+            - For matmul-like reductions, strongly consider the full CUDA
+              hierarchy: `cache_write(..., "local")` for the output accumulator,
+              `cache_read(..., "shared")` for input operands, `compute_at` /
+              `reverse_compute_at`, cooperative fetch loops, vectorized shared
+              loads, and reduction tiling/unrolling.
+            - For padded Conv2D, inline the `data_pad` block before binding the
+              `{primary_block_name}` loops.
+            - Keep CUDA thread extents plausible; avoid binding a reduction loop
+              directly to a huge `threadIdx` extent.
+            """
+        ).strip()
+    if target_name == "llvm":
+        return dedent(
+            """
+            - Write an LLVM-only candidate. Start with
+              `if target_name != "llvm": return ir_module`.
+            - Do not include GPU-specific branches, thread-binding primitives,
+              virtual threads, or GPU memory scopes.
+            - Use CPU-oriented loop tiling, `sch.parallel(...)`, `sch.vectorize(...)`,
+              and modest unrolling. Apply at most one `sch.parallel(...)` and at
+              most one `sch.vectorize(...)`.
+            """
+        ).strip()
+    return "- Preserve the requested target only; do not add unrelated target branches."
+
+
+def _search_space_target_requirements(target_name: str, primary_block_name: str) -> str:
+    """Return target-specific prompt constraints for generated search spaces."""
+    if target_name == "cuda":
+        return dedent(
+            f"""
+            - Generate CUDA-only design-space variants. Do not include CPU-only
+              variants or CPU `parallel` fallbacks.
+            - Every variant must bind output spatial loops under
+              `blockIdx`/`threadIdx`.
+            - For matmul-like reductions, include variants with local output
+              accumulation, shared input reads, cooperative fetch/vectorized
+              shared loads, reduction tiling, and different block/thread tile
+              shapes.
+            - For padded Conv2D, inline the `data_pad` block before binding the
+              `{primary_block_name}` loops.
+            - Include one simple split/bind fallback variant after the ambitious
+              CUDA variants if it helps robustness.
+            """
+        ).strip()
+    if target_name == "llvm":
+        return dedent(
+            """
+            - Generate LLVM-only design-space variants. Do not use GPU-specific
+              thread-binding primitives, virtual threads, or GPU memory scopes.
+            - Explore CPU loop tiling, one parallel loop, one vectorized inner
+              loop, and modest unrolling.
+            """
+        ).strip()
+    return "- Preserve the requested target only; do not add unrelated target variants."
+
+
+def _creative_block(prompt_style: str, *, level: str) -> str:
+    if prompt_style != "creative":
+        return ""
+    if level == "search_space":
+        body = """
+        Creative exploration mode:
+        - Do not merely retune constants in the parent. Propose at least one
+          substantially different legal CUDA schedule family.
+        - Include variants that differ in cache hierarchy, tile shape,
+          per-thread work, reduction tiling, cooperative fetch/vectorization, or
+          write-back placement.
+        - Keep every ambitious variant wrapped in a tight `try`/`except`, and
+          include a simple fallback so invalid ideas do not poison the run.
+        - Prefer compact helper functions if they make several advanced
+          variants easier to express correctly.
+        """
+    else:
+        body = """
+        Creative exploration mode:
+        - Do not merely retune constants in the parent. Try one substantial,
+          legal schedule-structure change before falling back.
+        - Consider moving cache placement, changing block/thread hierarchy,
+          adding local accumulation, adding shared reads/cooperative fetch, or
+          changing reduction tiling and unroll structure.
+        - Use a staged implementation: ambitious path first, simpler CUDA
+          fallback second, original `ir_module` only as the final fallback.
+        - Stay within TVM schedule APIs already shown in the parent/seed; avoid
+          invented APIs and target-mismatched code.
+        """
+    return "Prompt style: creative.\n" + dedent(body).strip()
 
 
 def survivor_summary(

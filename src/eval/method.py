@@ -121,6 +121,7 @@ class MethodRunConfig:
     enable_rejection_cascade: bool = True
     enable_elite_carry_forward: bool = False
     enable_diverse_inspiration: bool = True
+    prompt_style: str = "standard"
     dry_run: bool = True
     bedrock_client: BedrockClient | None = None
 
@@ -239,6 +240,7 @@ def _run_level1_search(*, config: MethodRunConfig) -> dict[str, Any]:
         enable_rejection_cascade=config.enable_rejection_cascade,
         enable_elite_carry_forward=config.enable_elite_carry_forward,
         enable_diverse_inspiration=config.enable_diverse_inspiration,
+        prompt_style=config.prompt_style,
     )
     evolution_time_sec = perf_counter() - start
     best = _best_or_raise(history)
@@ -304,6 +306,7 @@ def _run_level2_search(*, config: MethodRunConfig) -> dict[str, Any]:
         enable_rejection_cascade=config.enable_rejection_cascade,
         enable_elite_carry_forward=config.enable_elite_carry_forward,
         enable_diverse_inspiration=config.enable_diverse_inspiration,
+        prompt_style=config.prompt_style,
     )
     evolution_time_sec = perf_counter() - start
     best = _best_or_raise(history)
@@ -512,6 +515,7 @@ def _base_metadata(
         "rejection_cascade_enabled": config.enable_rejection_cascade,
         "elite_carry_forward_enabled": config.enable_elite_carry_forward,
         "diverse_inspiration_enabled": config.enable_diverse_inspiration,
+        "prompt_style": config.prompt_style,
     }
 
 
@@ -606,6 +610,7 @@ def _evolution_config_slug(config: MethodRunConfig) -> str:
         f"rc{int(config.enable_rejection_cascade)}",
         f"elite{int(config.enable_elite_carry_forward)}",
         f"div{int(config.enable_diverse_inspiration)}",
+        f"prompt{config.prompt_style}",
         f"policy{config.level2_final_evaluation_policy}",
     ]
     model_id = _bedrock_model_id(config)
