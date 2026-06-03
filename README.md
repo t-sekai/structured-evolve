@@ -1,9 +1,9 @@
 # Structured Evolution for Search-Space Generation in ML Kernel Scheduling
 Kevin Chan (tsekchan@stanford.edu), Newton Chen (hsinchen@stanford.edu)
 
-## Summary
+## Abstract
 
-We are going to build and evaluate a structured LLM-guided system for generating faster ML kernels by combining OpenEvolve-style evolutionary search with Apache TVM MetaSchedule. We will demonstrate success with benchmark plots comparing three levels of LLM intervention: direct kernel/schedule generation, LLM-generated search spaces refined by TVM's autotuner, and LLM-evolved search-space generators refined by TVM's autotuner. The goal is to study whether LLMs are most effective as kernel writers, search-space designers, or search-space-generator designers, while keeping TVM MetaSchedule as a strong, structured baseline.
+We study where a zero-shot large language model should intervene in an ML kernel scheduling pipeline, and whether its flexibility and expressiveness can outperform a rule-based autotuning baseline, Apache TVM MetaSchedule. Rather than asking an LLM only to emit one concrete low-level schedule, we compare that direct approach with a structured alternative in which the LLM generates a MetaSchedule design space and TVM searches within it. We build this comparison on fixed TensorIR matrix-multiplication kernels, automatic syntax/compile/correctness/latency gates, and an OpenEvolve-style mutation-and-selection loop over generated programs. Our results do not support the hypothesis that LLM-generated search spaces consistently outperform direct schedule generation or standard MetaSchedule: MetaSchedule remains strongest on regular matrix multiplication, direct schedule evolution is less reliable but finds large speedups on irregular shapes where MetaSchedule fails, and search-space evolution is more conservative and sensitive to prompt, seed, and feedback quality. These findings suggest that the main promise of LLM-guided scheduling is not replacing mature autotuners on their best cases, but expanding scheduling coverage for irregular or underspecified workloads. 
 
 ## Project Proposal
 
@@ -16,6 +16,10 @@ We are going to build and evaluate a structured LLM-guided system for generating
 ## Second Checkpoint (Week 8)
 
 [View Checkpoint](docs/checkpoint_2.md)
+
+## Final Report (Week 10)
+
+[View Report](structured_evolve_final_report.pdf)
 
 ## Install
 
